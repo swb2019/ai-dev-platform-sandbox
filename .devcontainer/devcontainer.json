@@ -1,0 +1,34 @@
+{
+  "name": "AI Dev Platform",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "postCreateCommand": "scripts/onboard.sh",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/terraform:1": {},
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "minikube": "none"
+    },
+    "ghcr.io/devcontainers-extra/features/pnpm:2": {
+      "version": "9"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "hashicorp.terraform",
+        "ms-azuretools.vscode-docker",
+        "ms-kubernetes-tools.vscode-kubernetes-tools",
+        "anthropic.claude-code",
+        "openai.chatgpt"
+      ]
+    }
+  },
+  "remoteUser": "node",
+  "initializeCommand": "powershell -NoLogo -ExecutionPolicy Bypass -File .\\.devcontainer\\setup-cursor-tools.ps1"
+}

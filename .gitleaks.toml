@@ -1,0 +1,36 @@
+title = "AI Dev Platform Gitleaks Configuration"
+
+[extend]
+  useDefault = true
+
+[[rules]]
+  id = "openai-api-key"
+  description = "OpenAI API key"
+  regex = '''sk-(?:proj|live|test|int|key|prod)-[A-Za-z0-9]{20,}'''
+  keywords = ["sk-"]
+  tags = ["ai", "openai", "secret"]
+
+[[rules]]
+  id = "anthropic-api-key"
+  description = "Anthropic API key"
+  regex = '''(?:sk|ak)-ant-[A-Za-z0-9_-]{30,}'''
+  keywords = ["sk-ant-", "ak-ant-"]
+  tags = ["ai", "anthropic", "secret"]
+
+[[rules]]
+  id = "infisical-service-token"
+  description = "Infisical service token"
+  regex = '''infisical_[a-zA-Z0-9]{32,}'''
+  keywords = ["infisical_"]
+  tags = ["infisical", "secret", "token"]
+
+[allowlist]
+  description = "Allow documented placeholders"
+  regexes = [
+    '''sk-(?:test|sample|example)-[A-Za-z0-9_-]{10,}''',
+    '''anthropic-test-key''',
+    '''infisical_(?:placeholder|example)_token''',
+    '''OPENAI_API_KEY''',
+    '''ANTHROPIC_API_KEY''',
+    '''INFISICAL_TOKEN'''
+  ]

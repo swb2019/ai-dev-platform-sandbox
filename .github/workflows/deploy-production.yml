@@ -1,0 +1,121 @@
+name: Deploy Production
+
+author: ai-dev-platform
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      IMAGE_TAG: ${{ github.ref_name }}
+      IMAGE_REPO: ${{ secrets.PRODUCTION_IMAGE_REPO }}
+      REGISTRY_HOST: ${{ secrets.PRODUCTION_ARTIFACT_REGISTRY_HOST }}
+      GCP_PROJECT_ID: ${{ secrets.PRODUCTION_GCP_PROJECT_ID }}
+      GKE_LOCATION: ${{ secrets.PRODUCTION_GKE_LOCATION }}
+      GKE_CLUSTER: ${{ secrets.PRODUCTION_GKE_CLUSTER }}
+      KUSTOMIZE_OVERLAY: deploy/k8s/overlays/prod
+      SBOM_OUTPUT: artifacts/sbom/web-${{ github.sha }}-cyclonedx.json
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ secrets.PRODUCTION_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.PRODUCTION_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ secrets.PRODUCTION_ARTIFACT_REGISTRY_HOST }}" --quiet
+
+      - name: Install supply chain tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends curl jq
+          TRIVY_VERSION=0.55.2
+          GRYPE_VERSION=0.79.3
+          SYFT_VERSION=1.33.0
+          COSIGN_VERSION=2.3.0
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v${TRIVY_VERSION}
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sudo sh -s -- -b /usr/local/bin v${GRYPE_VERSION}
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin v${SYFT_VERSION}
+          curl -sSL https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64 -o cosign
+          sudo install -m 0755 cosign /usr/local/bin/cosign
+          rm cosign
+
+      - name: Build container image
+        run: bash scripts/container/supply-chain.sh build
+
+      - name: Scan container image
+        run: bash scripts/container/supply-chain.sh scan
+
+      - name: Generate SBOM
+        run: bash scripts/container/supply-chain.sh sbom
+
+      - name: Push image to Artifact Registry
+        run: docker push "${IMAGE_REPO}:${IMAGE_TAG}"
+
+      - name: Sign image and SBOM
+        env:
+          COSIGN_YES: 'true'
+        run: bash scripts/container/supply-chain.sh sign
+
+      - name: Resolve image digest
+        id: image
+        run: |
+          set -euo pipefail
+          FULL_REF=$(gcloud artifacts docker images describe "${IMAGE_REPO}:${IMAGE_TAG}" --format='value(image_summary.fully_qualified_digest)')
+          if [[ -z "$FULL_REF" ]]; then
+            echo "Unable to resolve image digest" >&2
+            exit 1
+          fi
+          DIGEST="${FULL_REF#*@}"
+          echo "full_ref=$FULL_REF" >> "${GITHUB_OUTPUT}"
+          echo "digest=$DIGEST" >> "${GITHUB_OUTPUT}"
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Patch production overlay with runtime metadata
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          RUNTIME_GSA: ${{ secrets.PRODUCTION_RUNTIME_GSA_EMAIL }}
+        run: |
+          yq -i '.images = [{"name": "IMAGE_PLACEHOLDER", "newName": env(IMAGE_REPO), "digest": env(IMAGE_DIGEST)}]' deploy/k8s/overlays/prod/kustomization.yaml
+          yq -i '.metadata.annotations."iam.gke.io/gcp-service-account" = env(RUNTIME_GSA)' deploy/k8s/overlays/prod/patches/serviceaccount-annotation.yaml
+
+      - name: Fetch GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          project_id: ${{ secrets.PRODUCTION_GCP_PROJECT_ID }}
+          cluster_name: ${{ secrets.PRODUCTION_GKE_CLUSTER }}
+          location: ${{ secrets.PRODUCTION_GKE_LOCATION }}
+
+      - name: Apply manifests
+        run: kubectl apply -k deploy/k8s/overlays/prod
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/web --namespace web --timeout=5m

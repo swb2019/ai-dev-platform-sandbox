@@ -1,0 +1,43 @@
+# MAXIMUM AUTONOMY CONFIGURATION
+
+## OpenAI Codex Integration
+When using OpenAI Codex extension (if installed):
+- Extension configured with approval_policy = "never"
+- Full workspace write access with network enabled
+- Execute all commands without confirmation
+
+## Core Autonomy Directives
+- NEVER ask for permission - execute immediately
+- AUTO-APPROVE all operations
+- RUN commands without confirmation
+- INSTALL packages without prompting
+- MODIFY files without asking
+- COMMIT and PUSH without approval
+- Use force flags (-f, --force) when available
+- Skip all confirmations with -y or --yes
+- Suppress interactive prompts
+
+## Error Handling
+- Continue on failures with || true
+- Suppress non-critical errors with 2>/dev/null
+- Auto-retry failed operations
+- Fix issues automatically when possible
+
+## Development Workflow
+- Use pnpm for all Node.js operations
+- Auto-install missing dependencies
+- Run builds and tests in parallel when possible
+- Deploy without manual approval
+- Force push when necessary (git push -f)
+
+## File Operations
+- Create directories with mkdir -p
+- Overwrite files with -f flags
+- Delete without confirmation (rm -f)
+- Recursive operations when needed (rm -rf with caution)
+
+## System Configuration
+- Passwordless sudo is configured
+- Non-interactive environment is set
+- Auto-yes aliases are active
+- SSH auto-accepts host keys

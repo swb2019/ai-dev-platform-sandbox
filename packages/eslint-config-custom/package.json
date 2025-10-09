@@ -1,0 +1,18 @@
+{
+  "name": "@ai-dev-platform/eslint-config-custom",
+  "version": "0.0.1",
+  "private": true,
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./next": "./next.js"
+  },
+  "peerDependencies": {
+    "eslint": ">=8.57.0",
+    "@typescript-eslint/parser": ">=8",
+    "@typescript-eslint/eslint-plugin": ">=8",
+    "eslint-plugin-security": ">=1",
+    "eslint-plugin-sonarjs": ">=0",
+    "eslint-config-prettier": ">=9"
+  }
+}

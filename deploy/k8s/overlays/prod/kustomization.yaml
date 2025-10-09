@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+labels:
+  - includeSelectors: false
+    pairs:
+      environment: production
+images:
+  - name: IMAGE_PLACEHOLDER
+    newName: IMAGE_PLACEHOLDER
+patches:
+  - path: patches/deployment-replicas.yaml
+    target:
+      kind: Deployment
+      name: web
+  - path: patches/httproute-host.yaml
+    target:
+      kind: HTTPRoute
+      name: web
+  - path: patches/serviceaccount-annotation.yaml
+    target:
+      kind: ServiceAccount
+      name: web

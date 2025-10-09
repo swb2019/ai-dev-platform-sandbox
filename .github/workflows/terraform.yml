@@ -1,0 +1,177 @@
+name: Terraform
+
+on:
+  pull_request:
+    paths:
+      - 'infra/terraform/**'
+      - 'scripts/bootstrap-infra.sh'
+      - '.github/workflows/terraform.yml'
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  TF_IN_AUTOMATION: 'true'
+  TF_CLI_ARGS_init: '-input=false'
+  TF_CLI_ARGS_plan: '-input=false'
+  TF_CLI_ARGS_apply: '-input=false'
+  TERRAFORM_VERSION: '1.8.5'
+
+jobs:
+  plan:
+    name: Plan (staging)
+    if: ${{ github.event_name == 'pull_request' && secrets.TERRAFORM_SERVICE_ACCOUNT != '' }}
+    runs-on: ubuntu-latest
+    environment: staging
+    concurrency:
+      group: terraform-plan-${{ github.run_id }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+        working-directory: infra/terraform/envs/staging
+    env:
+      TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+      TF_VAR_region: ${{ secrets.GCP_REGION }}
+      TF_VAR_github_repository: ${{ github.repository }}
+      TF_VAR_runtime_service_account_namespace: ${{ secrets.RUNTIME_KSA_NAMESPACE }}
+      TF_VAR_runtime_service_account_name: ${{ secrets.RUNTIME_KSA_NAME }}
+      TF_VAR_binary_authorization_attestors: ${{ secrets.BA_ATTESTORS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.TERRAFORM_SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          create_credentials_file: true
+
+      - name: Terraform Fmt
+        run: terraform fmt -check -recursive ../../..
+
+      - name: Terraform Init
+        run: terraform init -upgrade
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        continue-on-error: true
+        run: |
+          terraform plan -out=tfplan
+          terraform show -no-color tfplan > plan.txt
+
+      - name: Upload Plan Artifact
+        if: steps.plan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-staging
+          path: infra/terraform/envs/staging/plan.txt
+
+      - name: Comment Plan on PR
+        if: steps.plan.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'infra/terraform/envs/staging/plan.txt';
+            let plan = fs.readFileSync(path, 'utf8');
+            const maxLength = 60000;
+            const truncated = plan.length > maxLength;
+            if (truncated) {
+              plan = `${plan.slice(0, maxLength)}\n\n... plan output truncated; see artifact terraform-plan-staging for full details.`;
+            }
+            const safePlan = plan.replace(/```/g, '\\`\\`\\`');
+            const body = [
+              '## Terraform Plan (staging)',
+              truncated ? '> Plan output truncated for comment length limits.' : '',
+              '<details><summary>Show plan</summary>',
+              '',
+              '```',
+              safePlan,
+              '```',
+              '</details>',
+              '',
+              '_Artifact_: terraform-plan-staging'
+            ].filter(Boolean).join('\n');
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+
+      - name: Fail if Plan Failed
+        if: steps.plan.outcome != 'success'
+        run: |
+          echo "Terraform plan failed"
+          exit 1
+
+  apply:
+    name: Apply
+    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'staging' || 'production' }}
+    concurrency:
+      group: terraform-apply-${{ github.ref == 'refs/heads/main' && 'staging' || 'production' }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET_ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'staging' || 'production' }}
+      TERRAFORM_CONFIG_DIR: ${{ github.ref == 'refs/heads/main' && 'infra/terraform/envs/staging' || 'infra/terraform/envs/prod' }}
+      TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+      TF_VAR_region: ${{ secrets.GCP_REGION }}
+      TF_VAR_github_repository: ${{ github.repository }}
+      TF_VAR_runtime_service_account_namespace: ${{ secrets.RUNTIME_KSA_NAMESPACE }}
+      TF_VAR_runtime_service_account_name: ${{ secrets.RUNTIME_KSA_NAME }}
+      TF_VAR_binary_authorization_attestors: ${{ secrets.BA_ATTESTORS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.TERRAFORM_SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          create_credentials_file: true
+
+      - name: Show Target Environment
+        run: |
+          echo "Deploying infrastructure to ${TARGET_ENVIRONMENT}"
+
+      - name: Terraform Init
+        run: terraform init -upgrade
+        working-directory: ${{ env.TERRAFORM_CONFIG_DIR }}
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: ${{ env.TERRAFORM_CONFIG_DIR }}
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+        working-directory: ${{ env.TERRAFORM_CONFIG_DIR }}

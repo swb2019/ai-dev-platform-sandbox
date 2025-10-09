@@ -1,0 +1,186 @@
+name: Deploy Staging
+
+author: ai-dev-platform
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      IMAGE_TAG: ${{ github.sha }}
+      IMAGE_REPO: ${{ secrets.STAGING_IMAGE_REPO }}
+      REGISTRY_HOST: ${{ secrets.STAGING_ARTIFACT_REGISTRY_HOST }}
+      GCP_PROJECT_ID: ${{ secrets.STAGING_GCP_PROJECT_ID }}
+      GKE_LOCATION: ${{ secrets.STAGING_GKE_LOCATION }}
+      GKE_CLUSTER: ${{ secrets.STAGING_GKE_CLUSTER }}
+      KUSTOMIZE_OVERLAY: deploy/k8s/overlays/staging
+      SBOM_OUTPUT: artifacts/sbom/web-${{ github.sha }}-cyclonedx.json
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${{ secrets.STAGING_ARTIFACT_REGISTRY_HOST }}" --quiet
+
+      - name: Install supply chain tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends curl jq
+          TRIVY_VERSION=0.55.2
+          GRYPE_VERSION=0.79.3
+          SYFT_VERSION=1.33.0
+          COSIGN_VERSION=2.3.0
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v${TRIVY_VERSION}
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sudo sh -s -- -b /usr/local/bin v${GRYPE_VERSION}
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin v${SYFT_VERSION}
+          curl -sSL https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64 -o cosign
+          sudo install -m 0755 cosign /usr/local/bin/cosign
+          rm cosign
+
+      - name: Build container image
+        run: bash scripts/container/supply-chain.sh build
+
+      - name: Scan container image
+        run: bash scripts/container/supply-chain.sh scan
+
+      - name: Generate SBOM
+        run: bash scripts/container/supply-chain.sh sbom
+
+      - name: Push image to Artifact Registry
+        run: docker push "${IMAGE_REPO}:${IMAGE_TAG}"
+
+      - name: Sign image and SBOM
+        env:
+          COSIGN_YES: 'true'
+        run: bash scripts/container/supply-chain.sh sign
+
+      - name: Resolve image digest
+        id: image
+        run: |
+          set -euo pipefail
+          FULL_REF=$(gcloud artifacts docker images describe "${IMAGE_REPO}:${IMAGE_TAG}" --format='value(image_summary.fully_qualified_digest)')
+          if [[ -z "$FULL_REF" ]]; then
+            echo "Unable to resolve image digest" >&2
+            exit 1
+          fi
+          DIGEST="${FULL_REF#*@}"
+          echo "full_ref=$FULL_REF" >> "${GITHUB_OUTPUT}"
+          echo "digest=$DIGEST" >> "${GITHUB_OUTPUT}"
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Patch staging overlay with runtime metadata
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          RUNTIME_GSA: ${{ secrets.STAGING_RUNTIME_GSA_EMAIL }}
+        run: |
+          yq -i '.images = [{"name": "IMAGE_PLACEHOLDER", "newName": env(IMAGE_REPO), "digest": env(IMAGE_DIGEST)}]' deploy/k8s/overlays/staging/kustomization.yaml
+          yq -i '.metadata.annotations."iam.gke.io/gcp-service-account" = env(RUNTIME_GSA)' deploy/k8s/overlays/staging/patches/serviceaccount-annotation.yaml
+
+      - name: Fetch GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          project_id: ${{ secrets.STAGING_GCP_PROJECT_ID }}
+          cluster_name: ${{ secrets.STAGING_GKE_CLUSTER }}
+          location: ${{ secrets.STAGING_GKE_LOCATION }}
+
+      - name: Apply manifests
+        run: kubectl apply -k deploy/k8s/overlays/staging
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/web --namespace web --timeout=5m
+
+  e2e-validation:
+    name: E2E Validation
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Enable Corepack
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.12.0 --activate
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Fetch GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          project_id: ${{ secrets.STAGING_GCP_PROJECT_ID }}
+          cluster_name: ${{ secrets.STAGING_GKE_CLUSTER }}
+          location: ${{ secrets.STAGING_GKE_LOCATION }}
+
+      - name: Resolve Gateway ingress endpoint
+        run: |
+          set -euo pipefail
+          for attempt in {1..30}; do
+            IP=$(kubectl get gateway web -n web -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)
+            if [[ -n "$IP" ]]; then
+              echo "Detected ingress IP: $IP"
+              echo "E2E_TARGET_URL=http://$IP" >> "$GITHUB_ENV"
+              break
+            fi
+            echo "Gateway IP not ready yet (attempt $attempt/30)"
+            sleep 10
+          done
+          if [[ -z "$IP" ]]; then
+            echo "Gateway IP not available after waiting" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @ai-dev-platform/web exec playwright install --with-deps
+
+      - name: Run Playwright E2E tests
+        run: pnpm --filter @ai-dev-platform/web test:e2e

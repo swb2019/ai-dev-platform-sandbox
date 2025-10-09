@@ -1,0 +1,43 @@
+{
+  "name": "@ai-dev-platform/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --project tsconfig.json --noEmit",
+    "test": "jest --runInBand --ci",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,mdx,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,mdx,css}\"",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed --project=chromium",
+    "test:e2e:report": "playwright show-report"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "next": "^14.2.33",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.5.2"
+  },
+  "devDependencies": {
+    "@ai-dev-platform/eslint-config-custom": "workspace:*",
+    "@eslint/eslintrc": "^3.3.1",
+    "@playwright/test": "^1.55.1",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.16.6",
+    "@types/react": "^18.3.24",
+    "@types/react-dom": "^18.3.3",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.33",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.6.3"
+  }
+}

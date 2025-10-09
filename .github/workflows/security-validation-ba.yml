@@ -1,0 +1,64 @@
+name: Security Validation - Binary Authorization
+
+author: ai-dev-platform
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  validate-binary-authorization:
+    name: Validate Binary Authorization Enforcement
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      GCP_PROJECT_ID: ${{ secrets.STAGING_GCP_PROJECT_ID }}
+      GKE_LOCATION: ${{ secrets.STAGING_GKE_LOCATION }}
+      GKE_CLUSTER: ${{ secrets.STAGING_GKE_CLUSTER }}
+      WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER }}
+      WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+    steps:
+      - name: Authenticate to Google Cloud (WIF)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Fetch GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.GKE_LOCATION }}
+
+      - name: Attempt unauthorized deployment
+        run: |
+          set -euo pipefail
+          set +e
+          OUTPUT=$(kubectl run nginx-unsigned --image=nginx:latest --namespace web 2>&1)
+          STATUS=$?
+          set -e
+          echo "${OUTPUT}"
+          if [ "${STATUS}" -eq 0 ]; then
+            echo "kubectl run unexpectedly succeeded; Binary Authorization not enforced" >&2
+            exit 1
+          fi
+          if ! grep -qi 'binary authorization' <<< "${OUTPUT}"; then
+            echo "kubectl run failed but not due to Binary Authorization" >&2
+            exit 1
+          fi
+          echo "Binary Authorization denied the unsigned image as expected."
+
+      - name: Ensure cleanup
+        if: always()
+        run: |
+          set -euo pipefail
+          kubectl delete pod nginx-unsigned --namespace web --ignore-not-found

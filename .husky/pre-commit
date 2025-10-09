@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+echo "Running gitleaks protect on staged changes"
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "gitleaks binary not found. Install it via the dev container or https://github.com/gitleaks/gitleaks/releases ."
+  exit 1
+fi
+
+gitleaks protect --staged --no-banner --redact --config .gitleaks.toml || exit 1
+
+echo "Running lint-staged"
+pnpm exec lint-staged

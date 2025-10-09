@@ -25,3 +25,39 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# PNPM / Turbo
+shrinkwrap.yaml
+.pnpm-store/
+.pnpm-state/
+.pnpm-debug.log
+.turbo/
+.cache/
+artifacts/
+apps/web/coverage/
+
+# Script state markers
+.onboarding_complete
+.infra_bootstrap_state
+
+# VS Code Devcontainers
+.devcontainer/.devcontainer.log
+.devcontainer/cache/
+tmp/cursor-tools/codex
+tmp/cursor-tools/openai-chatgpt.vsix
+tmp/cursor-tools/anthropic-claude-code.vsix
+## Windows host directories accidentally copied into repo
+C:/
+C:\\
+
+# Terraform artifacts
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfstate*
+
+# Temporary files
+tmp/
+testfile
+testfile2
+zzz_test.txt

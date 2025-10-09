@@ -1,0 +1,18 @@
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: Gateway
+metadata:
+  name: web
+  namespace: web
+  labels:
+    app.kubernetes.io/name: web
+    app.kubernetes.io/part-of: ai-dev-platform
+spec:
+  gatewayClassName: gke-l7-global-external-managed
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: HOSTNAME_PLACEHOLDER
+      allowedRoutes:
+        namespaces:
+          from: Same

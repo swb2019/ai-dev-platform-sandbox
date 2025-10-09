@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+dist
+build
+coverage
+tmp
+pnpm-lock.yaml
+
+# Generated assets
+apps/web/.turbo
+apps/web/public

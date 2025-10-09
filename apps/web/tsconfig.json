@@ -1,0 +1,21 @@
+{
+  "extends": "../../packages/tsconfig/nextjs.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "types": ["@types/node", "next", "jest", "@testing-library/jest-dom"],
+    "incremental": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "./src/**/*",
+    ".next/types/**/*.ts",
+    "jest.setup.ts",
+    "playwright.config.ts",
+    "tailwind.config.ts",
+    "tests/**/*"
+  ],
+  "exclude": ["node_modules"]
+}

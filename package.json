@@ -1,0 +1,53 @@
+{
+  "name": "ai-dev-platform",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Monorepo for the AI development platform.",
+  "license": "MIT",
+  "scripts": {
+    "prepare": "husky install",
+    "build": "node scripts/turbo-run.js run build",
+    "dev": "node scripts/turbo-run.js run dev --parallel",
+    "test": "node scripts/turbo-run.js run test",
+    "lint": "node scripts/turbo-run.js run lint",
+    "type-check": "node scripts/turbo-run.js run type-check",
+    "format:check": "node scripts/turbo-run.js run format:check",
+    "format": "node scripts/turbo-run.js run format",
+    "clean": "node scripts/turbo-run.js run clean",
+    "docker:build:web": "./scripts/container/supply-chain.sh build",
+    "docker:scan:web": "./scripts/container/supply-chain.sh scan",
+    "docker:sbom:web": "./scripts/container/supply-chain.sh sbom",
+    "docker:sign:web": "./scripts/container/supply-chain.sh sign",
+    "docker:release:web": "pnpm docker:build:web && pnpm docker:scan:web && pnpm docker:sbom:web && pnpm docker:sign:web",
+    "onboard": "./scripts/onboard.sh",
+    "bootstrap:infra": "./scripts/bootstrap-infra.sh"
+  },
+  "engines": {
+    "node": ">=20 <21",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "devDependencies": {
+    "@commitlint/cli": "^20.0.0",
+    "@commitlint/config-conventional": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.45.0",
+    "@typescript-eslint/parser": "^8.45.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-security": "^3.0.1",
+    "eslint-plugin-sonarjs": "^3.0.5",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.3",
+    "prettier": "^3.6.2",
+    "turbo": "^2.5.8"
+  },
+  "lint-staged": {
+    "*.{json,md,mdx,yaml,yml}": [
+      "pnpm exec prettier --check"
+    ],
+    "*.{ts,tsx}": [
+      "pnpm exec eslint --max-warnings=0 --ignore-pattern **/.eslintrc.js",
+      "pnpm exec prettier --check"
+    ]
+  }
+}

@@ -1,0 +1,33 @@
+# Ignore everything by default
+**
+
+# Allow essential build inputs back in
+!.dockerignore
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!turbo.json
+!tsconfig.json
+!commitlint.config.cjs
+
+# Apps and packages needed for the build
+!apps/
+!apps/web/
+!apps/web/**
+
+!packages/
+!packages/**
+
+# Scripts referenced by the Docker build process
+!scripts/
+!scripts/**
+
+# Keep docs used by the web app (markdown imports, public assets)
+!apps/web/public/
+!apps/web/public/**
+
+# Allow config inside root directories that match glob above
+!.husky/
+!.husky/**
+!.github/
+!.github/workflows/**
