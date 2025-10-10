@@ -435,6 +435,267 @@ PYSCRIPT
   printf "%s" "$result"
 }
 
+refresh_gcloud_credentials_if_needed() {
+  if gcloud auth print-access-token >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "Active gcloud credentials need to be refreshed."
+  if prompt_yes "Run gcloud auth login now?" "Y"; then
+    gcloud auth login --project "$GCP_PROJECT_ID"
+    if gcloud auth print-access-token >/dev/null 2>&1; then
+      return 0
+    fi
+    echo "gcloud auth login did not refresh credentials successfully." >&2
+  else
+    echo "Cannot continue without refreshed gcloud credentials." >&2
+  fi
+
+  exit 1
+}
+
+ensure_attestor_signing_permissions_for_env() {
+  local env_label="${1:-}"
+  local tf_env="${2:-}"
+  local attestor_resource="${3:-}"
+
+  if [[ -z "$env_label" || -z "$tf_env" ]]; then
+    echo "Environment label and Terraform environment name are required for attestor IAM configuration." >&2
+    exit 1
+  fi
+
+  if [[ -z "$attestor_resource" ]]; then
+    echo "No Binary Authorization attestor configured for ${env_label}; skipping IAM binding."
+    return 0
+  fi
+
+  if [[ -z "${TERRAFORM_OUTPUTS_JSON[$tf_env]:-}" ]]; then
+    echo "Terraform outputs missing for ${env_label}; skipping Binary Authorization IAM binding."
+    return 0
+  fi
+
+  local python_bin
+  python_bin="$(find_python)"
+  if [[ -z "$python_bin" ]]; then
+    echo "python3 (or python) is required to manage Binary Authorization IAM bindings." >&2
+    exit 1
+  fi
+
+  local service_account
+  if ! service_account="$(extract_output_value "$tf_env" terraform_service_account_email 2>/dev/null)"; then
+    echo "Unable to determine Terraform service account for ${env_label}; skipping Binary Authorization IAM binding." >&2
+    return 1
+  fi
+  service_account="${service_account//$'\r'/}"
+  service_account="${service_account//$'\n'/}"
+  if [[ -z "$service_account" ]]; then
+    echo "Terraform service account email for ${env_label} is empty; skipping Binary Authorization IAM binding." >&2
+    return 1
+  fi
+
+  attestor_resource="${attestor_resource//$'\r'/}"
+  attestor_resource="${attestor_resource//$'\n'/}"
+  local attestor_id="${attestor_resource##*/}"
+  local member="serviceAccount:${service_account}"
+  local -a attestor_roles=(
+    "roles/binaryauthorization.attestorsVerifier"
+  )
+
+  local attestor_json
+  if ! attestor_json=$(gcloud container binauthz attestors describe "$attestor_id" --project "$GCP_PROJECT_ID" --format=json 2>/dev/null); then
+    echo "Unable to describe attestor ${attestor_resource}; skipping IAM binding." >&2
+    return 1
+  fi
+
+  local note_reference
+  note_reference="$("$python_bin" - <<'PYIN'
+import json
+import sys
+
+data = json.loads(sys.stdin.read() or "{}")
+print(data.get("userOwnedGrafeasNote", {}).get("noteReference", ""))
+PYIN
+<<<"$attestor_json")"
+
+  local policy_json
+  if ! policy_json=$(gcloud container binauthz attestors get-iam-policy "$attestor_id" --project "$GCP_PROJECT_ID" --format=json 2>/dev/null); then
+    echo "Unable to fetch IAM policy for attestor ${attestor_resource} in project ${GCP_PROJECT_ID}." >&2
+    return 1
+  fi
+
+  local role heading_printed=0
+  for role in "${attestor_roles[@]}"; do
+    if POLICY_JSON="$policy_json" MEMBER="$member" ROLE="$role" "$python_bin" <<'PY'
+import json, os, sys
+policy = json.loads(os.environ.get("POLICY_JSON") or "{}")
+target_role = os.environ["ROLE"]
+target_member = os.environ["MEMBER"]
+for binding in policy.get("bindings", []):
+    if binding.get("role") == target_role and target_member in (binding.get("members") or []):
+        sys.exit(0)
+sys.exit(1)
+PY
+    then
+      continue
+    fi
+
+    if (( heading_printed == 0 )); then
+      heading "Grant Binary Authorization roles (${env_label})"
+      heading_printed=1
+    fi
+
+    echo "Granting ${role} to ${member} on attestor ${attestor_id}"
+    gcloud container binauthz attestors add-iam-policy-binding "$attestor_id" \
+      --project "$GCP_PROJECT_ID" \
+      --member "$member" \
+      --role "$role"
+    policy_json=$(gcloud container binauthz attestors get-iam-policy "$attestor_id" --project "$GCP_PROJECT_ID" --format=json 2>/dev/null)
+  done
+
+  ensure_note_attacher_binding "$note_reference" "$member" "${env_label}"
+
+  if (( heading_printed == 0 )); then
+    echo "Binary Authorization attestor ${attestor_id} already grants required roles to ${member}."
+  fi
+}
+
+ensure_attestor_signing_permissions() {
+  ensure_attestor_signing_permissions_for_env "staging" "staging" "${STAGING_BA_ATTESTORS:-}"
+  ensure_attestor_signing_permissions_for_env "production" "prod" "${PRODUCTION_BA_ATTESTORS:-}"
+}
+
+ensure_note_attacher_binding() {
+  local note_resource="${1:-}"
+  local member="${2:-}"
+  local env_label="${3:-}"
+  local role="roles/containeranalysis.notes.attacher"
+
+  if [[ -z "$note_resource" ]]; then
+    echo "Binary Authorization attestor for ${env_label:-unknown environment} is not linked to a Grafeas note; skipping note IAM update."
+    return 0
+  fi
+
+  if [[ -z "$member" ]]; then
+    echo "Skipping Binary Authorization note IAM update for ${note_resource}; member is empty." >&2
+    return 1
+  fi
+
+  local access_token
+  access_token="$(gcloud auth print-access-token 2>/dev/null | tr -d '\r')"
+  if [[ -z "$access_token" ]]; then
+    echo "Unable to obtain access token to update IAM policy for ${note_resource}." >&2
+    return 1
+  fi
+
+  local python_bin
+  python_bin="$(find_python)"
+  if [[ -z "$python_bin" ]]; then
+    echo "python3 (or python) is required to update Binary Authorization note IAM policy." >&2
+    return 1
+  fi
+
+  local get_response http_status policy_json
+  get_response=$(curl -sS -X POST \
+    -H "Authorization: Bearer ${access_token}" \
+    -H "Content-Type: application/json" \
+    "https://containeranalysis.googleapis.com/v1/${note_resource}:getIamPolicy" \
+    -d '{}' -w '\n%{http_code}')
+  http_status=${get_response##*$'\n'}
+  policy_json=${get_response%$'\n'$http_status}
+  if [[ $http_status -lt 200 || $http_status -ge 300 ]]; then
+    echo "Failed to read IAM policy for ${note_resource} (status $http_status)." >&2
+    [[ -n "$policy_json" ]] && echo "$policy_json" >&2
+    return 1
+  fi
+
+  local updated_policy
+  updated_policy=$(POLICY_MEMBER="$member" POLICY_ROLE="$role" POLICY_JSON="$policy_json" "$python_bin" - <<'PYIN'
+import json
+import os
+
+text = os.environ.get('POLICY_JSON') or ''
+member = os.environ['POLICY_MEMBER']
+role = os.environ['POLICY_ROLE']
+if text.strip():
+    policy = json.loads(text)
+else:
+    policy = {}
+
+bindings = policy.setdefault('bindings', [])
+for binding in bindings:
+    if binding.get('role') == role:
+        members = binding.setdefault('members', [])
+        if member in members:
+            print('__UNCHANGED__')
+            break
+        members.append(member)
+        print(json.dumps(policy, separators=(',', ':')))
+        break
+else:
+    bindings.append({'role': role, 'members': [member]})
+    print(json.dumps(policy, separators=(',', ':')))
+PYIN
+)
+
+  if [[ "$updated_policy" == "__UNCHANGED__" || -z "$updated_policy" ]]; then
+    echo "Binary Authorization note ${note_resource} already grants ${role} to ${member}."
+    return 0
+  fi
+
+  local payload
+  payload=$(UPDATED_POLICY="$updated_policy" "$python_bin" - <<'PYIN'
+import json
+import os
+
+policy_json = os.environ.get('UPDATED_POLICY')
+policy = json.loads(policy_json)
+print(json.dumps({'policy': policy}))
+PYIN
+)
+
+  local set_response
+  set_response=$(curl -sS -X POST \
+    -H "Authorization: Bearer ${access_token}" \
+    -H "Content-Type: application/json" \
+    "https://containeranalysis.googleapis.com/v1/${note_resource}:setIamPolicy" \
+    -d "$payload" -w '\n%{http_code}')
+  http_status=${set_response##*$'\n'}
+  local set_body=${set_response%$'\n'$http_status}
+  if [[ $http_status -lt 200 || $http_status -ge 300 ]]; then
+    echo "Failed to update IAM policy for ${note_resource} (status $http_status)." >&2
+    [[ -n "$set_body" ]] && echo "$set_body" >&2
+    return 1
+  fi
+
+  echo "Granted ${role} to ${member} on Binary Authorization note ${note_resource}."
+  return 0
+}
+
+enable_project_service() {
+  local service="${1:-}"
+  local label="${2:-$service}"
+  local output
+
+  if [[ -z "$service" ]]; then
+    return 0
+  fi
+
+  if ! output=$(gcloud services enable "$service" --project "$GCP_PROJECT_ID" 2>&1); then
+    if echo "$output" | grep -Eqi 'reauthentication failed|gcloud auth login'; then
+      echo "gcloud session requires reauthentication before enabling ${label}."
+      refresh_gcloud_credentials_if_needed
+      if output=$(gcloud services enable "$service" --project "$GCP_PROJECT_ID" 2>&1); then
+        return 0
+      fi
+    fi
+    echo "Failed to enable ${label} API ($service)." >&2
+    echo "$output" >&2
+    return 1
+  fi
+
+  return 0
+}
+
 ensure_github_environment() {
   local env_name="${1:-}"
   if [[ -z "$env_name" ]]; then
@@ -622,23 +883,43 @@ sync_github_environment() {
 ensure_gcloud_project_access() {
   heading "Validate gcloud project access"
 
+  refresh_gcloud_credentials_if_needed
+
+  echo "Ensuring foundational Google APIs are enabled..."
+  enable_project_service serviceusage.googleapis.com "Service Usage" || {
+    echo "Unable to enable Service Usage API for $GCP_PROJECT_ID." >&2
+    exit 1
+  }
+  enable_project_service cloudresourcemanager.googleapis.com "Cloud Resource Manager" || {
+    echo "Unable to enable Cloud Resource Manager API for $GCP_PROJECT_ID." >&2
+    exit 1
+  }
+
   while true; do
-    if ! gcloud config set project "$GCP_PROJECT_ID" >/dev/null 2>&1; then
-      echo "Failed to set gcloud project to $GCP_PROJECT_ID. Ensure the project exists and you have access." >&2
-    else
-      if gcloud projects describe "$GCP_PROJECT_ID" >/dev/null 2>&1; then
-        if gcloud services list --project "$GCP_PROJECT_ID" --format="value(config.name)" --limit=1 >/dev/null 2>&1; then
-          return 0
-        fi
+    local describe_output=""
+    if describe_output="$(gcloud projects describe "$GCP_PROJECT_ID" --format="value(projectId)" 2>&1)"; then
+      local services_ready=0
+      if gcloud services list --project "$GCP_PROJECT_ID" --format="value(config.name)" --limit=1 >/dev/null 2>&1; then
+        services_ready=1
+      else
         echo "Attempting to enable serviceusage.googleapis.com (required before other APIs)..."
         if gcloud services enable serviceusage.googleapis.com --project "$GCP_PROJECT_ID" >/dev/null 2>&1; then
-          return 0
+          services_ready=1
+        else
+          echo "Account $ACTIVE_GCLOUD_ACCOUNT cannot manage services on project $GCP_PROJECT_ID." >&2
+          echo "Request a role such as roles/serviceusage.serviceUsageAdmin or roles/editor." >&2
         fi
-        echo "Account $ACTIVE_GCLOUD_ACCOUNT cannot manage services on project $GCP_PROJECT_ID." >&2
-        echo "Request a role such as roles/serviceusage.serviceUsageAdmin or roles/editor." >&2
-      else
-        echo "Unable to describe project $GCP_PROJECT_ID with account $ACTIVE_GCLOUD_ACCOUNT." >&2
       fi
+
+      if (( services_ready )); then
+        if ! gcloud config set project "$GCP_PROJECT_ID" >/dev/null 2>&1; then
+          echo "Warning: unable to set the active gcloud project. Continuing with explicit --project=$GCP_PROJECT_ID." >&2
+        fi
+        return 0
+      fi
+    else
+      echo "Unable to describe project $GCP_PROJECT_ID with account $ACTIVE_GCLOUD_ACCOUNT." >&2
+      echo "$describe_output" >&2
     fi
 
     echo ""
@@ -823,6 +1104,7 @@ run_terraform_for_env prod
 
 capture_terraform_outputs staging || true
 capture_terraform_outputs prod || true
+ensure_attestor_signing_permissions
 configure_github_environments
 
 BOOTSTRAP_COMPLETED="yes"

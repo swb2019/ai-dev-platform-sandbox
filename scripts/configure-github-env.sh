@@ -52,11 +52,29 @@ case "${INPUT_ENVIRONMENT,,}" in
     ENVIRONMENT_CANONICAL="staging"
     ENVIRONMENT_DIR="staging"
     ENVIRONMENT_PREFIX="STAGING"
+    cluster_default="${STAGING_GKE_CLUSTER:-stg-autopilot}"
+    endpoint_default="${STAGING_GKE_CLUSTER_ENDPOINT:-}"
+    wif_provider_default="${STAGING_WORKLOAD_IDENTITY_PROVIDER:-}"
+    wif_pool_default="${STAGING_WIF_POOL_NAME:-}"
+    wif_provider_id_default="${STAGING_WIF_PROVIDER_ID:-stg-gha}"
+    runtime_gsa_default="${STAGING_RUNTIME_GSA_EMAIL:-}"
+    terraform_sa_default="${STAGING_TERRAFORM_SERVICE_ACCOUNT:-}"
+    deploy_enabled_default="${STAGING_DEPLOY_ENABLED:-false}"
+    infra_enabled_default="${STAGING_INFRA_ENABLED:-false}"
     ;;
   prod|production)
     ENVIRONMENT_CANONICAL="production"
     ENVIRONMENT_DIR="prod"
     ENVIRONMENT_PREFIX="PRODUCTION"
+    cluster_default="${PRODUCTION_GKE_CLUSTER:-prod-autopilot}"
+    endpoint_default="${PRODUCTION_GKE_CLUSTER_ENDPOINT:-}"
+    wif_provider_default="${PRODUCTION_WORKLOAD_IDENTITY_PROVIDER:-}"
+    wif_pool_default="${PRODUCTION_WIF_POOL_NAME:-}"
+    wif_provider_id_default="${PRODUCTION_WIF_PROVIDER_ID:-prod-gha}"
+    runtime_gsa_default="${PRODUCTION_RUNTIME_GSA_EMAIL:-}"
+    terraform_sa_default="${PRODUCTION_TERRAFORM_SERVICE_ACCOUNT:-}"
+    deploy_enabled_default="${PRODUCTION_DEPLOY_ENABLED:-false}"
+    infra_enabled_default="${PRODUCTION_INFRA_ENABLED:-false}"
     ;;
   *)
     echo "Unsupported environment '${INPUT_ENVIRONMENT}'. Use 'staging' or 'prod'." >&2
@@ -213,6 +231,67 @@ if [[ -n "$ba_default" ]]; then
   ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_BA_ATTESTORS"]="$ba_default"
 fi
 
+project_stub="${project_default:-example-project}"
+if [[ -z "$cluster_default" ]]; then
+  if [[ "$ENVIRONMENT_CANONICAL" == "staging" ]]; then
+    cluster_default="stg-autopilot"
+  else
+    cluster_default="prod-autopilot"
+  fi
+fi
+if [[ -z "$endpoint_default" ]]; then
+  endpoint_default=""
+fi
+if [[ -z "$wif_provider_default" ]]; then
+  if [[ "$ENVIRONMENT_CANONICAL" == "staging" ]]; then
+    wif_provider_default="projects/${project_stub}/locations/global/workloadIdentityPools/stg-github/providers/stg-gha"
+  else
+    wif_provider_default="projects/${project_stub}/locations/global/workloadIdentityPools/prod-github/providers/prod-gha"
+  fi
+fi
+if [[ -z "$wif_pool_default" ]]; then
+  if [[ "$ENVIRONMENT_CANONICAL" == "staging" ]]; then
+    wif_pool_default="projects/${project_stub}/locations/global/workloadIdentityPools/stg-github"
+  else
+    wif_pool_default="projects/${project_stub}/locations/global/workloadIdentityPools/prod-github"
+  fi
+fi
+if [[ -z "$wif_provider_id_default" ]]; then
+  if [[ "$ENVIRONMENT_CANONICAL" == "staging" ]]; then
+    wif_provider_id_default="stg-gha"
+  else
+    wif_provider_id_default="prod-gha"
+  fi
+fi
+if [[ -z "$runtime_gsa_default" ]]; then
+  if [[ "$ENVIRONMENT_CANONICAL" == "staging" ]]; then
+    runtime_gsa_default="stg-runtime@${project_stub}.iam.gserviceaccount.com"
+  else
+    runtime_gsa_default="prod-runtime@${project_stub}.iam.gserviceaccount.com"
+  fi
+fi
+if [[ -z "$terraform_sa_default" ]]; then
+  if [[ "$ENVIRONMENT_CANONICAL" == "staging" ]]; then
+    terraform_sa_default="stg-tf-admin@${project_stub}.iam.gserviceaccount.com"
+  else
+    terraform_sa_default="prod-tf-admin@${project_stub}.iam.gserviceaccount.com"
+  fi
+fi
+ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_GKE_CLUSTER"]="$cluster_default"
+ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_GKE_CLUSTER_NAME"]="$cluster_default"
+if [[ -n "$endpoint_default" ]]; then
+  ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_GKE_CLUSTER_ENDPOINT"]="$endpoint_default"
+fi
+ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_WORKLOAD_IDENTITY_PROVIDER"]="$wif_provider_default"
+ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_WIF_PROVIDER_NAME"]="$wif_provider_default"
+ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_WIF_PROVIDER_ID"]="$wif_provider_id_default"
+ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_WIF_POOL_NAME"]="$wif_pool_default"
+ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_RUNTIME_GSA_EMAIL"]="$runtime_gsa_default"
+ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_WORKLOAD_IDENTITY_SERVICE_ACCOUNT"]="$terraform_sa_default"
+ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_TERRAFORM_SERVICE_ACCOUNT"]="$terraform_sa_default"
+ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_DEPLOY_ENABLED"]="$deploy_enabled_default"
+ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_INFRA_ENABLED"]="$infra_enabled_default"
+
 if [[ -n "$project_default" && -z "${!env_project_var:-}" ]]; then
   ENV_DEFAULTS["${ENVIRONMENT_PREFIX}_GCP_PROJECT_ID"]="$project_default"
 fi
@@ -260,14 +339,24 @@ SECRET_KEYS=(
   "${ENVIRONMENT_PREFIX}_RUNTIME_KSA_NAMESPACE"
   "${ENVIRONMENT_PREFIX}_RUNTIME_KSA_NAME"
   "${ENVIRONMENT_PREFIX}_BA_ATTESTORS"
+  "${ENVIRONMENT_PREFIX}_TERRAFORM_SERVICE_ACCOUNT"
 )
 
 VARIABLE_KEYS=(
   "${ENVIRONMENT_PREFIX}_WIF_PROVIDER_ID"
   "${ENVIRONMENT_PREFIX}_WIF_POOL_NAME"
   "${ENVIRONMENT_PREFIX}_GKE_CLUSTER_NAME"
-  "${ENVIRONMENT_PREFIX}_GKE_CLUSTER_ENDPOINT"
+)
+
+cluster_endpoint_var="${ENVIRONMENT_PREFIX}_GKE_CLUSTER_ENDPOINT"
+if [[ -n "${!cluster_endpoint_var:-}" ]]; then
+  VARIABLE_KEYS+=("$cluster_endpoint_var")
+fi
+
+VARIABLE_KEYS+=(
   "${ENVIRONMENT_PREFIX}_GKE_LOCATION"
+  "${ENVIRONMENT_PREFIX}_DEPLOY_ENABLED"
+  "${ENVIRONMENT_PREFIX}_INFRA_ENABLED"
 )
 
 if (( AUTO_ACCEPT_DEFAULTS )); then

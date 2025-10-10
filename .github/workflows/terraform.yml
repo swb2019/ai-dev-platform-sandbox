@@ -126,7 +126,7 @@ jobs:
 
   apply:
     name: Apply
-    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    if: ${{ github.event_name == 'push' && ((github.ref == 'refs/heads/main' && vars.STAGING_INFRA_ENABLED == 'true') || (startsWith(github.ref, 'refs/tags/v') && vars.PRODUCTION_INFRA_ENABLED == 'true')) }}
     runs-on: ubuntu-latest
     environment: ${{ github.ref == 'refs/heads/main' && 'staging' || 'production' }}
     concurrency:

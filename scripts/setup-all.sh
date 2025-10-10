@@ -36,6 +36,19 @@ cd "$ROOT_DIR"
 log "AI Dev Platform consolidated setup"
 log "Repository root: $ROOT_DIR"
 
+TOOLCHAIN_SCRIPT="$ROOT_DIR/scripts/install-toolchain.sh"
+if [[ -f "$TOOLCHAIN_SCRIPT" ]]; then
+  log "Provisioning CLI prerequisites"
+  # shellcheck disable=SC1090
+  source "$TOOLCHAIN_SCRIPT"
+  if ! install_toolchain_main; then
+    echo "Unable to provision required tooling automatically. Review the messages above and retry once resolved." >&2
+    exit 1
+  fi
+else
+  log "Toolchain installer not found; skipping automatic CLI provisioning."
+fi
+
 run_step "Onboarding" "$ONBOARD_SCRIPT"
 run_step "Infrastructure bootstrap" "$BOOTSTRAP_SCRIPT"
 run_step "Repository hardening" "$HARDENING_SCRIPT"

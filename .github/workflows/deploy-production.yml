@@ -19,6 +19,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy to Production
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: production
     env:

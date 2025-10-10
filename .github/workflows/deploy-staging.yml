@@ -19,6 +19,7 @@ concurrency:
 jobs:
   deploy:
     name: Deploy to Staging
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.STAGING_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: staging
     env:
@@ -123,6 +124,7 @@ jobs:
   e2e-validation:
     name: E2E Validation
     needs: deploy
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.STAGING_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 30
