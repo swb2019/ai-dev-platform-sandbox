@@ -30,7 +30,7 @@ This runbook outlines the repeatable process for promoting the web application f
 
 1. Trigger the Production deployment workflow manually (or execute the runbook command if automated):
    ```bash
-   gh workflow run deploy-prod.yml -f ref=main
+   gh workflow run deploy-production.yml -f ref=main
    ```
 2. Monitor workflow logs for supply-chain, deployment, and validation gates.
 3. Wait for rollout completion (`kubectl rollout status deployment/web --namespace web --timeout=10m`).
@@ -52,7 +52,7 @@ This runbook outlines the repeatable process for promoting the web application f
    ```bash
    git tag -f rollback-vX.Y.Z <previous-commit>
    git push origin rollback-vX.Y.Z --force
-   gh workflow run deploy-prod.yml -f ref=rollback-vX.Y.Z
+   gh workflow run deploy-production.yml -f ref=rollback-vX.Y.Z
    ```
 2. Alternatively, execute `kubectl rollout undo deployment/web -n web` while investigating.
 3. File an incident report, collect logs, and schedule a postmortem within 24 hours.

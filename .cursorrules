@@ -41,3 +41,13 @@ When using OpenAI Codex extension (if installed):
 - Non-interactive environment is set
 - Auto-yes aliases are active
 - SSH auto-accepts host keys
+
+## Git Synchronization Mandate
+- Run `./scripts/git-sync-check.sh` at session start, after significant changes, and before the final message.
+- If the script reports drift, fix it (push safely when ready or pull/rebase when remote has changes) or escalate when blocked.
+- Record the reported status in the final message so humans know the repository condition at hand-off.
+## Pull Request Workflow
+- Never push directly to `main`. Use feature branches for all work.
+- After completing changes, run `./scripts/push-pr.sh` to push the branch, open a PR against `main`, and enable auto-merge.
+- Wait for required checks to pass before merging; investigate failures immediately.
+

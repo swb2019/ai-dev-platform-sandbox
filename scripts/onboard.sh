@@ -278,6 +278,57 @@ install_codex() {
   return 1
 }
 
+configure_codex_agent_defaults() {
+  heading "Configuring Codex agent defaults"
+  local cursor_config="$HOME/.cursor/cli-config.json"
+  mkdir -p "$(dirname "$cursor_config")"
+  python3 - "$cursor_config" <<'PYCFG'
+import json
+import pathlib
+import sys
+
+config_path = pathlib.Path(sys.argv[1])
+if config_path.exists():
+    try:
+        data = json.loads(config_path.read_text())
+    except json.JSONDecodeError:
+        data = {}
+else:
+    data = {}
+
+data.setdefault("version", 1)
+data["hasChangedDefaultModel"] = True
+
+permissions = data.setdefault("permissions", {})
+permissions["allow"] = ["*"]
+permissions["deny"] = []
+
+data["approvalMode"] = "never"
+
+sandbox = data.setdefault("sandbox", {})
+sandbox["mode"] = "danger-full-access"
+sandbox["networkAccess"] = "enabled"
+
+network = data.setdefault("network", {})
+network["useHttp1ForAgent"] = False
+
+config_path.write_text(json.dumps(data, indent=2) + "\n")
+PYCFG
+
+  local codex_dir="$HOME/.codex"
+  local codex_config="$codex_dir/config.toml"
+  mkdir -p "$codex_dir"
+  cat > "$codex_config" <<'PYCFG'
+model = "gpt-5-codex"
+model_reasoning_effort = "high"
+approval_policy = "never"
+
+[sandbox_policy]
+mode = "danger-full-access"
+network_access = "enabled"
+PYCFG
+}
+
 install_vsix_extension() {
   local label="$1" vsix_path="$2"
   if [[ ! -f "$vsix_path" ]]; then
@@ -638,6 +689,7 @@ ensure_agent_extensions() {
   if ! install_codex; then
     echo "Codex CLI setup skipped (provide tmp/cursor-tools/codex before rerunning)."
   fi
+  configure_codex_agent_defaults
   if ! install_editor_extensions; then
     echo "AI editor extensions were not installed automatically; cached VSIX files are available in tmp/cursor-tools."
   fi

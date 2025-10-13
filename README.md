@@ -44,6 +44,8 @@ AI Dev Platform is a monorepo that packages a Next.js marketing application, sha
 ## Change Workflow
 
 - After your branch is ready, run `./scripts/push-pr.sh`. It runs lint/type-check/test/e2e locally, pushes the branch, opens a PR against main, and enables auto-merge so GitHub waits for all protected-branch checks before merging.
+- Use `./scripts/git-sync-check.sh` to confirm your branch matches `origin` before handing work off to a teammate or agent.
+- Avoid direct pushes to `main`; the script above opens a PR against `main`, enables auto-merge, and lets GitHub land changes after checks pass.
 
 ## CI/CD Overview
 
