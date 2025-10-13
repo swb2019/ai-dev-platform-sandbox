@@ -53,13 +53,45 @@ push_branch() {
 }
 
 create_pr() {
-  local branch="$1"
+  local branch="$1" pr_url
   heading "Creating pull request"
-  if gh pr view --head "$branch" >/dev/null 2>&1; then
-    echo "PR already exists for $branch; skipping creation."
+  if gh pr view --head "$branch" --json url >/dev/null 2>&1; then
+    pr_url=$(gh pr view --head "$branch" --json url --jq '.url')
+    echo "PR already exists for $branch; skipping creation." >&2
   else
-    gh pr create --fill --head "$branch" --base "$DEFAULT_BRANCH"
+    pr_url=$(gh pr create --fill --head "$branch" --base "$DEFAULT_BRANCH" | tail -n1)
   fi
+  printf '%s' "$pr_url"
+}
+
+annotate_pr() {
+  local pr_url="$1"
+  heading "Posting automation summary"
+  if [[ -z "$pr_url" ]]; then
+    echo "PR URL missing; skipping annotation." >&2
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "jq not available; skipping PR annotation." >&2
+    return 0
+  fi
+  if [[ ! -f "$ROOT_DIR/config/editor-extensions.lock.json" ]]; then
+    echo "Lock file missing; skipping PR annotation." >&2
+    return 0
+  fi
+  local versions sync_output body
+  versions=$(jq -r '.extensions[] | "- " + .id + " @ " + .version + " (" + .source + ")"' "$ROOT_DIR/config/editor-extensions.lock.json")
+  sync_output=$(./scripts/git-sync-check.sh || true)
+  body=$'### Automation Summary
+
+#### Editor Extensions
+'"$versions"$'
+
+#### Git Sync Status
+```
+'"$sync_output"$'
+```'
+  gh pr comment "$pr_url" --body "$body" >/dev/null 2>&1 || echo "Unable to post PR comment." >&2
 }
 
 enable_auto_merge() {
@@ -73,7 +105,10 @@ cd "$ROOT_DIR"
 require_clean_worktree
 current_branch=$(ensure_branch)
 run_checks
+heading "Verifying editor extensions"
+./scripts/verify-editor-extensions.sh --strict
 push_branch "$current_branch"
-create_pr "$current_branch"
+pr_url=$(create_pr "$current_branch")
+annotate_pr "$pr_url"
 enable_auto_merge
 heading "All done. GitHub will merge once required checks pass."

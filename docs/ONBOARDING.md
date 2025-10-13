@@ -15,11 +15,18 @@
    - apps/web – Next.js app (App Router + Tailwind CSS).
    - packages/tsconfig – Shared TypeScript presets.
    - packages/eslint-config-custom – Centralized ESLint rules.
-3. Provision the cloud infrastructure (prompts for project/region; you will be reminded to create Binary Authorization attestors before continuing):
+3. Run the consolidated setup wrapper if you prefer a single command:
+   ./scripts/setup-all.sh
+   (equivalent to running onboarding, editor update/verify, infrastructure bootstrap, and hardening in sequence.)
+4. Provision the cloud infrastructure manually if you skipped the wrapper:
    ./scripts/bootstrap-infra.sh
-4. Populate GitHub environment secrets (requires `gh auth login`; defaults are detected from Terraform outputs):
+5. Populate GitHub environment secrets (requires `gh auth login`; defaults are detected from Terraform outputs):
    ./scripts/configure-github-env.sh staging
    ./scripts/configure-github-env.sh prod
+6. Update Cursor and editor extensions to the latest marketplace versions:
+   ./scripts/update-editor-extensions.sh
+   ./scripts/verify-editor-extensions.sh --strict
+   Commit `config/editor-extensions.lock.json` with the captured versions.
 
 ## Development Workflow
 

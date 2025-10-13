@@ -329,6 +329,40 @@ network_access = "enabled"
 PYCFG
 }
 
+
+collect_editor_cli() {
+  local -n _candidates=$1
+  _candidates=()
+  if command -v code >/dev/null 2>&1; then
+    _candidates+=(code)
+  fi
+  if command -v code-server >/dev/null 2>&1; then
+    _candidates+=(code-server)
+  fi
+
+  local server_root="${VSCODE_AGENT_FOLDER:-$HOME/.vscode-server}"
+  if [[ -d "$server_root/bin" ]]; then
+    while IFS= read -r candidate; do
+      _candidates+=("$candidate")
+    done < <(find "$server_root/bin" -maxdepth 3 -type f \( -name code -o -name code-server \) 2>/dev/null)
+  fi
+}
+
+install_marketplace_extension() {
+  local label="$1" extension="$2"
+  local -a cli_candidates=()
+  collect_editor_cli cli_candidates
+
+  local cli
+  for cli in "${cli_candidates[@]}"; do
+    if "$cli" --install-extension "$extension" --force >/dev/null 2>&1; then
+      echo "$label extension installed via $cli marketplace (latest available)."
+      return 0
+    fi
+  done
+  return 1
+}
+
 install_vsix_extension() {
   local label="$1" vsix_path="$2"
   if [[ ! -f "$vsix_path" ]]; then
@@ -337,20 +371,9 @@ install_vsix_extension() {
   fi
 
   local -a cli_candidates=()
-  if command -v code >/dev/null 2>&1; then
-    cli_candidates+=(code)
-  fi
-  if command -v code-server >/dev/null 2>&1; then
-    cli_candidates+=(code-server)
-  fi
+  collect_editor_cli cli_candidates
 
   local server_root="${VSCODE_AGENT_FOLDER:-$HOME/.vscode-server}"
-  if [[ -d "$server_root/bin" ]]; then
-    while IFS= read -r candidate; do
-      cli_candidates+=("$candidate")
-    done < <(find "$server_root/bin" -maxdepth 3 -type f \( -name code -o -name code-server \) 2>/dev/null)
-  fi
-
   local installed=0
   for cli in "${cli_candidates[@]}"; do
     if "$cli" --install-extension "$vsix_path" --force >/dev/null 2>&1; then
@@ -428,13 +451,17 @@ install_editor_extensions() {
   local installed_any=0
   local failures=0
 
-  if install_vsix_extension "OpenAI Codex" "$vsix_dir/openai-chatgpt.vsix"; then
+  if install_marketplace_extension "OpenAI Codex" "openai.chatgpt"; then
+    installed_any=1
+  elif install_vsix_extension "OpenAI Codex" "$vsix_dir/openai-chatgpt.vsix"; then
     installed_any=1
   else
     ((failures++))
   fi
 
-  if install_vsix_extension "Claude Code" "$vsix_dir/anthropic-claude-code.vsix"; then
+  if install_marketplace_extension "Claude Code" "anthropic.claude-code"; then
+    installed_any=1
+  elif install_vsix_extension "Claude Code" "$vsix_dir/anthropic-claude-code.vsix"; then
     installed_any=1
   else
     ((failures++))

@@ -10,6 +10,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ONBOARD_SCRIPT="$ROOT_DIR/scripts/onboard.sh"
 BOOTSTRAP_SCRIPT="$ROOT_DIR/scripts/bootstrap-infra.sh"
 HARDENING_SCRIPT="$ROOT_DIR/scripts/github-hardening.sh"
+UPDATE_SCRIPT="$ROOT_DIR/scripts/update-editor-extensions.sh"
+VERIFY_SCRIPT="$ROOT_DIR/scripts/verify-editor-extensions.sh"
+LOCK_FILE="$ROOT_DIR/config/editor-extensions.lock.json"
 
 log() {
   printf '\n[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1"

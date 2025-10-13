@@ -23,7 +23,7 @@ Agents must never skip a phase. If a phase cannot be completed (e.g., missing cr
 - Use Conventional Commits (`type(scope?): subject`). Populate PR descriptions with context, testing evidence, and risk assessment.
 - Open pull requests early for visibility. Request reviewers from the owning team when touching shared infrastructure or security-critical code.
 - Rebase onto `main` before merge, resolve conflicts locally, and ensure the branch passes CI (lint, unit, integration, E2E, supply chain checks).
-- Commit work on feature branches and finish by running `./scripts/push-pr.sh` to push, open the PR, and enable auto-merge.
+- Commit work on feature branches and finish by running `./scripts/push-pr.sh` to push, open the PR, and enable auto-merge. Immediately follow with `./scripts/monitor-pr.sh` to watch the PR until it merges successfully.
 - Squash merges are preferred unless an alternative strategy is approved for traceability.
 
 ## Validation Expectations
@@ -36,7 +36,8 @@ Agents must never skip a phase. If a phase cannot be completed (e.g., missing cr
 ## Agent Tooling & Notes
 
 - Cursor-based sessions load `.cursor/agents.md`. Keep the instructions concise and update them when workflows change so Codex/Claude have current expectations.
-- Agents and humans share the `./scripts/git-sync-check.sh` helper. Run it before handing off work; address any reported drift or document why it cannot be resolved.
+- Run `./scripts/update-editor-extensions.sh` whenever editor updates are available so Cursor, Codex, and Claude Code stay aligned with marketplace releases. Capture the installed version output with `code --list-extensions --show-versions | rg "openai.chatgpt|anthropic.claude-code"`, verify with `./scripts/verify-editor-extensions.sh --strict`, and include the version summary in the PR description.
+- Agents and humans share the `./scripts/git-sync-check.sh` helper. Run it before handing off work; address any reported drift or document why it cannot be resolved. Attach the sync output to the PR so reviewers see repository status.
 - Claude Code does not read workspace files directly. Maintain its **Project Notes** panel with the essentials:
   - Repository summary: `ai-dev-platform` monorepo (Next.js web app + infra + scripts).
   - Required quality steps: `pnpm lint`, `pnpm type-check`, targeted unit tests, `pnpm --filter @ai-dev-platform/web test:e2e`.

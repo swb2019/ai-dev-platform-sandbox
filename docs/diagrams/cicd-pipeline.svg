@@ -1,0 +1,67 @@
+<svg width="900" height="350" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 350">
+  <style>
+    .pipeline-stage { fill: #ebf8ff; stroke: #4299e1; stroke-width: 2; rx: 10; }
+    .job-box { fill: #ffffff; stroke: #a0aec0; stroke-width: 1; rx: 5; }
+    .security-job { fill: #fff5f5; stroke: #fc8181; }
+    .deploy-stage { fill: #f0fff4; stroke: #48bb78; }
+    .text { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 14px; fill: #2d3748; }
+    .title { font-size: 16px; font-weight: bold; }
+    .arrow { stroke: #718096; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#718096" />
+    </marker>
+  </defs>
+
+  <text x="10" y="30" class="title">Triggers</text>
+  <rect x="10" y="40" width="120" height="50" class="job-box"/>
+  <text x="70" y="60" class="text" text-anchor="middle">PR / Push</text>
+  <text x="70" y="80" class="text" text-anchor="middle">to `main`</text>
+
+  <rect x="10" y="250" width="120" height="50" class="job-box"/>
+  <text x="70" y="270" class="text" text-anchor="middle">Tag `v*.*.*`</text>
+
+  <rect x="160" y="10" width="250" height="320" class="pipeline-stage"/>
+  <text x="285" y="30" class="title" text-anchor="middle">Stage 1: Continuous Integration</text>
+  <text x="285" y="50" class="text" text-anchor="middle">(.github/workflows/ci.yml)</text>
+
+  <rect x="180" y="70" width="210" height="60" class="job-box security-job"/>
+  <text x="285" y="95" class="text" text-anchor="middle">Security Scans</text>
+  <text x="285" y="115" class="text" text-anchor="middle">(Gitleaks, Semgrep)</text>
+
+  <rect x="180" y="150" width="210" height="60" class="job-box"/>
+  <text x="285" y="175" class="text" text-anchor="middle">Quality Gates</text>
+  <text x="285" y="195" class="text" text-anchor="middle">Lint • Type-check • Test • Build</text>
+
+  <rect x="180" y="230" width="210" height="80" class="job-box security-job"/>
+  <text x="285" y="255" class="text" text-anchor="middle">Supply Chain</text>
+  <text x="285" y="275" class="text" text-anchor="middle">Build • Scan • SBOM • Sign</text>
+
+  <rect x="440" y="10" width="450" height="320" class="pipeline-stage deploy-stage"/>
+  <text x="665" y="30" class="title" text-anchor="middle">Stage 2: Deployment</text>
+  <text x="665" y="50" class="text" text-anchor="middle">(deploy-staging.yml / deploy-production.yml)</text>
+
+  <rect x="460" y="80" width="190" height="60" class="job-box"/>
+  <text x="555" y="105" class="text" text-anchor="middle">Authenticate (WIF)</text>
+
+  <rect x="460" y="160" width="190" height="80" class="job-box security-job"/>
+  <text x="555" y="185" class="text" text-anchor="middle">Repeatable Build &amp; Sign</text>
+  <text x="555" y="205" class="text" text-anchor="middle">Push to Artifact Registry</text>
+  <text x="555" y="225" class="text" text-anchor="middle">Resolve Digest</text>
+
+  <rect x="460" y="260" width="190" height="60" class="job-box"/>
+  <text x="555" y="285" class="text" text-anchor="middle">Patch Kustomize &amp; Deploy</text>
+  <text x="555" y="305" class="text" text-anchor="middle">Wait for Rollout</text>
+
+  <rect x="680" y="160" width="190" height="80" class="job-box"/>
+  <text x="775" y="185" class="title" text-anchor="middle">E2E Validation</text>
+  <text x="775" y="205" class="text" text-anchor="middle">Resolve Gateway IP</text>
+  <text x="775" y="225" class="text" text-anchor="middle">Run Playwright</text>
+
+  <path d="M130,65 C 145,65 145,65 160,65" class="arrow"/>
+  <path d="M130,275 C 145,275 145,275 160,275" class="arrow"/>
+
+  <path d="M410,200 C 425,200 425,200 440,200" class="arrow"/>
+  <path d="M650,220 C 665,220 665,200 680,200" class="arrow"/>
+</svg>

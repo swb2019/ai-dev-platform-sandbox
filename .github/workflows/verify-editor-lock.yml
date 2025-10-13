@@ -1,0 +1,27 @@
+name: Verify Editor Extensions Lock
+
+on:
+  pull_request:
+    paths:
+      - 'config/editor-extensions.lock.json'
+      - 'scripts/update-editor-extensions.sh'
+      - 'scripts/verify-editor-extensions.sh'
+      - '.github/workflows/verify-editor-lock.yml'
+
+jobs:
+  validate-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure lock file exists
+        run: |
+          test -f config/editor-extensions.lock.json
+
+      - name: Validate lock file contents
+        run: |
+          jq -e 'has("generatedAt")' config/editor-extensions.lock.json >/dev/null
+          jq -e 'has("extensions") and (.extensions | length > 0)' config/editor-extensions.lock.json >/dev/null
+          jq -e 'def has_id(x): any(.extensions[]; .id == x); has_id("openai.chatgpt") and has_id("anthropic.claude-code")' config/editor-extensions.lock.json >/dev/null
+          jq -e 'all(.extensions[]; (.version | length) > 0 and (.source | length) > 0)' config/editor-extensions.lock.json >/dev/null

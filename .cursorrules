@@ -49,5 +49,9 @@ When using OpenAI Codex extension (if installed):
 ## Pull Request Workflow
 - Never push directly to `main`. Use feature branches for all work.
 - After completing changes, run `./scripts/push-pr.sh` to push the branch, open a PR against `main`, and enable auto-merge.
-- Wait for required checks to pass before merging; investigate failures immediately.
+- Immediately run `./scripts/monitor-pr.sh` to watch the PR until it merges. Investigate and remediate any failing checks; do not drop monitoring until the merge completes.
+
+## Editor Maintenance
+- When Cursor prompts for updates, run `./scripts/update-editor-extensions.sh` to install the latest marketplace versions of Codex and Claude Code and refresh `config/editor-extensions.lock.json`.
+- Execute `./scripts/verify-editor-extensions.sh --strict` so the lock file matches installed versions, then re-run project validations (`./scripts/push-pr.sh`).
 
