@@ -48,10 +48,24 @@ fi
 
 if (( ahead == 0 && behind == 0 )); then
   echo "✓ Local branch is up to date with $REMOTE/$CURRENT_BRANCH."
+  if [[ -n "${SYNC_OUTPUT_TO:-}" ]]; then
+    {
+      echo "$STATUS_LINE"
+      echo "ahead=0"
+      echo "behind=0"
+    } > "$SYNC_OUTPUT_TO"
+  fi
   exit 0
 fi
 
 echo "⚠ Repository is out of sync with $REMOTE/$CURRENT_BRANCH." >&2
+if [[ -n "${SYNC_OUTPUT_TO:-}" ]]; then
+  {
+    echo "$STATUS_LINE"
+    (( ahead > 0 )) && echo "ahead=$ahead"
+    (( behind > 0 )) && echo "behind=$behind"
+  } > "$SYNC_OUTPUT_TO"
+fi
 if (( ahead > 0 )); then
   echo "  - Local branch is ahead by $ahead commit(s); push or reset as appropriate." >&2
 fi

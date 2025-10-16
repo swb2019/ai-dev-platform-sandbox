@@ -8,6 +8,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEFAULT_BRANCH="main"
 
+ALLOW_SKIP_TEST_GUARD="${ALLOW_NO_TEST_CHANGES:-0}"
+
 heading() {
   printf '\n==> %s\n' "$1" >&2
 }
@@ -30,6 +32,48 @@ ensure_branch() {
     git checkout -b "$branch"
   fi
   printf '%s' "$branch"
+}
+
+
+ensure_tests_touched() {
+  if [[ "$ALLOW_SKIP_TEST_GUARD" == "1" ]]; then
+    heading "Skipping test-change guard (ALLOW_NO_TEST_CHANGES set)"
+    return 0
+  fi
+
+  local base
+  if ! base=$(git merge-base HEAD "origin/$DEFAULT_BRANCH" 2>/dev/null); then
+    base=$(git merge-base HEAD "$DEFAULT_BRANCH" 2>/dev/null || true)
+  fi
+  if [[ -z "$base" ]]; then
+    heading "Test-change guard: unable to determine merge base; skipping check"
+    return 0
+  fi
+
+  local changed
+  changed=$(git diff --name-only "$base"..HEAD)
+  if [[ -z "$changed" ]]; then
+    heading "Test-change guard: no changes detected; skipping"
+    return 0
+  fi
+
+  local code_changed=0
+  local tests_changed=0
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    if [[ "$file" == apps/web/src/__tests__/* || "$file" == apps/web/tests/e2e/* ]]; then
+      tests_changed=1
+    fi
+    if [[ "$file" == apps/web/src/* && "$file" != apps/web/src/__tests__/* ]]; then
+      code_changed=1
+    fi
+  done <<<"$changed"
+
+  if (( code_changed == 1 && tests_changed == 0 )); then
+    echo "Test-change guard: application code changed but no unit/e2e tests were modified." >&2
+    echo "Update tests (or set ALLOW_NO_TEST_CHANGES=1 to override) before running push-pr." >&2
+    exit 1
+  fi
 }
 
 run_checks() {
@@ -105,6 +149,7 @@ cd "$ROOT_DIR"
 require_clean_worktree
 current_branch=$(ensure_branch)
 run_checks
+ensure_tests_touched
 heading "Verifying editor extensions"
 ./scripts/verify-editor-extensions.sh --strict
 push_branch "$current_branch"

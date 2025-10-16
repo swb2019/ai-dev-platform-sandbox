@@ -35,7 +35,7 @@ Agents must never skip a phase. If a phase cannot be completed (e.g., missing cr
 
 ## Agent Tooling & Notes
 
-- Cursor-based sessions load `.cursor/agents.md`. Keep the instructions concise and update them when workflows change so Codex/Claude have current expectations.
+- Cursor-based sessions load `.cursor/agents.md`. Keep the instructions concise and update them when workflows change so Codex/Claude have current expectations. Follow the TDD checklist in `docs/TDD_GUIDE.md` before touching implementation files, and use `./scripts/task-context.sh` to keep project goals aligned.
 - Run `./scripts/update-editor-extensions.sh` whenever editor updates are available so Cursor, Codex, and Claude Code stay aligned with marketplace releases. Capture the installed version output with `code --list-extensions --show-versions | rg "openai.chatgpt|anthropic.claude-code"`, verify with `./scripts/verify-editor-extensions.sh --strict`, and include the version summary in the PR description.
 - Agents and humans share the `./scripts/git-sync-check.sh` helper. Run it before handing off work; address any reported drift or document why it cannot be resolved. Attach the sync output to the PR so reviewers see repository status.
 - Claude Code does not read workspace files directly. Maintain its **Project Notes** panel with the essentials:
@@ -43,3 +43,4 @@ Agents must never skip a phase. If a phase cannot be completed (e.g., missing cr
   - Required quality steps: `pnpm lint`, `pnpm type-check`, targeted unit tests, `pnpm --filter @ai-dev-platform/web test:e2e`.
   - Reminder to execute `./scripts/git-sync-check.sh` and report sync status.
     Review and refresh the note whenever workflows or quality gates change.
+- Keep `docs/agents/` up to date. It houses the execution spec, decision playbook, risk register, prompt template, and quality checklist that autonomous agents rely on for long-running sessions. Update these files whenever workflows, assumptions, or mitigations change.

@@ -1,0 +1,37 @@
+{
+  "features": [
+    {
+      "id": "security",
+      "title": "Security by Design",
+      "badge": "Security",
+      "description": "Centralized policies, encrypted pipelines, and automated compliance checks keep your AI workloads protected end-to-end.",
+      "points": [
+        "Zero-trust runtime isolation",
+        "Audit trails with anomaly detection",
+        "SAST & secret scanning baked in"
+      ]
+    },
+    {
+      "id": "ai",
+      "title": "AI-Native Workflows",
+      "badge": "AI",
+      "description": "Spin up model sandboxes, share prompts, and monitor performance metrics with tooling built for applied AI teams.",
+      "points": [
+        "Model registry & evaluation dashboards",
+        "Prompt and agent version control",
+        "Human feedback loops out of the box"
+      ]
+    },
+    {
+      "id": "modern-stack",
+      "title": "Modern Stack Velocity",
+      "badge": "Modern Stack",
+      "description": "Next.js 14, edge-first APIs, and resilient CI/CD automations give teams the velocity they expect from a modern platform.",
+      "points": [
+        "App Router + React Server Components",
+        "First-class TypeScript everywhere",
+        "Turbocharged builds and previews"
+      ]
+    }
+  ]
+}

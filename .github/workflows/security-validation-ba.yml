@@ -10,6 +10,12 @@ permissions:
   id-token: write
 
 jobs:
+  skip:
+    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "BA validation runs only on main; current ref ${{ github.ref }}."
+
   validate-binary-authorization:
     name: Validate Binary Authorization Enforcement
     runs-on: ubuntu-latest

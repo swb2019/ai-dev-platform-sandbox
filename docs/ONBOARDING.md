@@ -27,6 +27,9 @@
    ./scripts/update-editor-extensions.sh
    ./scripts/verify-editor-extensions.sh --strict
    Commit `config/editor-extensions.lock.json` with the captured versions.
+7. Review the shared task manifest and update it with your assignments:
+   ./scripts/task-context.sh --show
+   ./scripts/task-context.sh --set currentGoal "Investigate login UX"
 
 ## Development Workflow
 
@@ -40,6 +43,8 @@
   pnpm --filter @ai-dev-platform/web test
 - Run Playwright end-to-end tests (requires a running target; set `E2E_TARGET_URL` or start `pnpm --filter @ai-dev-platform/web dev` in another terminal):
   pnpm --filter @ai-dev-platform/web test:e2e
+- Run the full suite before commits:
+  ./scripts/test-suite.sh
 - Format code with Prettier:
   pnpm --filter @ai-dev-platform/web format
 

@@ -22,6 +22,7 @@ module.exports = {
     '^.+\\.(css|sass|scss)$': '<rootDir>/jest.cssMock.js',
     '^.+\\.(png|jpg|jpeg|gif|webp|avif|ico|bmp|svg)$': '<rootDir>/jest.fileMock.js',
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^@fixtures/(.*)$': '<rootDir>/../../fixtures/$1',
   },
   transform: {
     '^.+\\.(js|jsx|ts|tsx|mjs)$': '<rootDir>/jest.transform.js',
@@ -29,4 +30,5 @@ module.exports = {
   transformIgnorePatterns: ['/node_modules/'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'mjs'],
   clearMocks: true,
+  cacheDirectory: '<rootDir>/.cache/jest',
 };

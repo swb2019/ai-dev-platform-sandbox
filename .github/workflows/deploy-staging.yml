@@ -17,9 +17,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  skip:
+    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Staging deploy runs only on main; current ref ${{ github.ref }}."
+
   deploy:
     name: Deploy to Staging
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.STAGING_DEPLOY_ENABLED == 'true' }}
+    if: ${{ github.ref == 'refs/heads/main' && (vars.STAGING_DEPLOY_ENABLED == 'true' || vars.STAGING_DEPLOY_ENABLED == '' || vars.STAGING_DEPLOY_ENABLED == null) }}
     runs-on: ubuntu-latest
     environment: staging
     env:
@@ -124,7 +130,7 @@ jobs:
   e2e-validation:
     name: E2E Validation
     needs: deploy
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.STAGING_DEPLOY_ENABLED == 'true' }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && (vars.STAGING_DEPLOY_ENABLED == 'true' || vars.STAGING_DEPLOY_ENABLED == '' || vars.STAGING_DEPLOY_ENABLED == null) }}
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 30

@@ -1,0 +1,71 @@
+name: Dependency Update PR
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+jobs:
+  updater:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.REPO_TOKEN || github.token }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9.15.9
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run pnpm up --latest
+        run: pnpm up --latest --recursive
+
+      - name: Run tests
+        run: ./scripts/test-suite.sh
+
+      - name: Commit dependency updates
+        run: |
+          if git diff --quiet; then
+            echo "No dependency updates."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b chore/dependency-updates-${{ github.run_id }}
+          git commit -am "chore: dependency updates"
+          git push origin HEAD
+
+      - name: Create pull request (if needed)
+        if: ${{ !cancelled() && success() }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.REPO_TOKEN || github.token }}
+          script: |
+            const branch = `chore/dependency-updates-${process.env.GITHUB_RUN_ID}`;
+            const { data: existing } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${branch}`,
+              state: 'open'
+            });
+            if (existing.length === 0) {
+              await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                head: branch,
+                base: 'main',
+                title: 'chore: dependency updates',
+                body: 'Automated weekly dependency refresh (pnpm up --latest).'
+              });
+            }

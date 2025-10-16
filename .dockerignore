@@ -26,6 +26,9 @@
 !apps/web/public/
 !apps/web/public/**
 
+!fixtures/
+!fixtures/**
+
 # Allow config inside root directories that match glob above
 !.husky/
 !.husky/**

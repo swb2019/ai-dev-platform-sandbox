@@ -2,11 +2,6 @@ name: Verify Editor Extensions Lock
 
 on:
   pull_request:
-    paths:
-      - 'config/editor-extensions.lock.json'
-      - 'scripts/update-editor-extensions.sh'
-      - 'scripts/verify-editor-extensions.sh'
-      - '.github/workflows/verify-editor-lock.yml'
 
 jobs:
   validate-lock:
@@ -14,12 +9,37 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect lock or script changes
+        id: diff
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          git fetch origin "${BASE_SHA}" --depth=1
+          CHANGED_FILES="$(git diff --name-only "${BASE_SHA}" "${HEAD_SHA}")"
+          echo "Changed files:"
+          echo "${CHANGED_FILES:-<none>}"
+
+          if echo "${CHANGED_FILES}" | grep -Eq '^(config/editor-extensions\.lock\.json|scripts/update-editor-extensions\.sh|scripts/verify-editor-extensions\.sh|\.github/workflows/verify-editor-lock\.yml)$'; then
+            echo "run-validation=true" >> $GITHUB_OUTPUT
+          else
+            echo "run-validation=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip validation (no relevant changes)
+        if: steps.diff.outputs.run-validation == 'false'
+        run: |
+          echo "No editor lock changes detected; skipping validation."
 
       - name: Ensure lock file exists
+        if: steps.diff.outputs.run-validation == 'true'
         run: |
           test -f config/editor-extensions.lock.json
 
       - name: Validate lock file contents
+        if: steps.diff.outputs.run-validation == 'true'
         run: |
           jq -e 'has("generatedAt")' config/editor-extensions.lock.json >/dev/null
           jq -e 'has("extensions") and (.extensions | length > 0)' config/editor-extensions.lock.json >/dev/null

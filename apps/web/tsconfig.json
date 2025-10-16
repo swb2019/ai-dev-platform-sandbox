@@ -3,7 +3,8 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@fixtures/*": ["../../fixtures/*"]
     },
     "types": ["@types/node", "next", "jest", "@testing-library/jest-dom"],
     "incremental": true
@@ -15,7 +16,8 @@
     "jest.setup.ts",
     "playwright.config.ts",
     "tailwind.config.ts",
-    "tests/**/*"
+    "tests/**/*",
+    "../../fixtures/**/*"
   ],
   "exclude": ["node_modules"]
 }

@@ -1,0 +1,10 @@
+{
+  "currentGoal": "Maintain the autonomous agent operating system for the ai-dev-platform repository so Codex and Claude runs can execute end-to-end without human intervention.",
+  "acceptanceCriteria": [
+    "Agent-facing docs in docs/agents stay current with architecture, workflows, and risks.",
+    "Automation scripts (scripts/agent-validate.sh, scripts/test-suite.sh) produce passing results before hand-off.",
+    "config/task-context.json always reflects the active initiative and is updated after each work session."
+  ],
+  "remainingTodos": [],
+  "lastUpdated": "2025-10-15T15:34:40Z"
+}

@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import Home from '@/app/page';
+import { features } from '@/data/feature-cards';
 
 describe('Home page', () => {
   it('renders the hero headline and primary actions', () => {
@@ -16,15 +17,29 @@ describe('Home page', () => {
     expect(screen.getByRole('link', { name: /Explore Features/i })).toBeInTheDocument();
   });
 
-  it('highlights all feature cards with learn more actions', () => {
+  it('highlights every feature from the shared fixture with learn more actions', () => {
     render(<Home />);
 
     const featureCards = screen.getAllByRole('article');
 
-    expect(featureCards).toHaveLength(3);
-    featureCards.forEach((card) => {
-      expect(within(card).getByRole('heading', { level: 3 })).toBeInTheDocument();
-      expect(within(card).getByRole('link', { name: /Learn more/i })).toBeInTheDocument();
+    expect(featureCards).toHaveLength(features.length);
+    features.forEach((feature) => {
+      const heading = screen.getByRole('heading', { level: 3, name: feature.title });
+
+      expect(heading).toBeInTheDocument();
+
+      const card = heading.closest('article');
+      if (!card) {
+        throw new Error(`Expected feature card article for ${feature.id}`);
+      }
+
+      feature.points.forEach((point) => {
+        expect(screen.getByText(point)).toBeInTheDocument();
+      });
+
+      const learnMoreLink = within(card).getByRole('link', { name: /Learn more/i });
+
+      expect(learnMoreLink).toHaveAttribute('href', `#${feature.id}`);
     });
   });
 

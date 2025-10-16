@@ -17,9 +17,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  skip:
+    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Production deploy runs only on main; current ref ${{ github.ref }}."
+
   deploy:
     name: Deploy to Production
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && (vars.PRODUCTION_DEPLOY_ENABLED == 'true' || vars.PRODUCTION_DEPLOY_ENABLED == '' || vars.PRODUCTION_DEPLOY_ENABLED == null) }}
     runs-on: ubuntu-latest
     environment: production
     env:

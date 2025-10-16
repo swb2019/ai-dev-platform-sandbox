@@ -26,6 +26,12 @@ env:
   TERRAFORM_VERSION: '1.8.5'
 
 jobs:
+  skip:
+    if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Terraform applies run only on main; current ref ${{ github.ref }}."
+
   plan:
     name: Plan (staging)
     if: ${{ github.event_name == 'pull_request' && secrets.TERRAFORM_SERVICE_ACCOUNT != '' }}

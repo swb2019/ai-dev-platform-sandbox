@@ -33,6 +33,8 @@ shrinkwrap.yaml
 .pnpm-debug.log
 .turbo/
 .cache/
+.tmp/
+uninstall-terraform-summary.json
 artifacts/
 apps/web/coverage/
 
