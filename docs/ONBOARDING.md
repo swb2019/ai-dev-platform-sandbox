@@ -15,19 +15,24 @@
    - apps/web – Next.js app (App Router + Tailwind CSS).
    - packages/tsconfig – Shared TypeScript presets.
    - packages/eslint-config-custom – Centralized ESLint rules.
-3. Run the consolidated setup wrapper if you prefer a single command:
+3. On Windows, run the elevated bootstrap helper (installs WSL2, sets the selected distro as default, installs Docker Desktop—with winget, direct-download fallback, or a supplied installer—and executes the consolidated setup). Re-run the helper after completing any prompts; it will resume automatically:
+   ```
+   powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1 [-DockerInstallerPath C:\path\to\DockerDesktopInstaller.exe]
+   ```
+   Add `-RepoSlug your-user/ai-dev-platform`, `-Branch feature`, or set `DOCKER_DESKTOP_INSTALLER` when operating behind strict proxies.
+4. Run the consolidated setup wrapper if you prefer a single command (already invoked automatically by the Windows helper):
    ./scripts/setup-all.sh
-   (equivalent to running onboarding, editor update/verify, infrastructure bootstrap, and hardening in sequence.)
-4. Provision the cloud infrastructure manually if you skipped the wrapper:
+   (installs prerequisite packages/tooling, validates Docker, runs onboarding, editor update/verify, infrastructure bootstrap, hardening, and finishes with automated verification: `docker info`, `pnpm lint`, `pnpm type-check`, `pnpm --filter @ai-dev-platform/web test -- --runInBand`. Each verification reruns automatically (Docker setup helper or `pnpm install --frozen-lockfile`, lint auto-fix, Playwright reinstall, etc.) before failing. On WSL the script can trigger the Docker Desktop installer—complete Windows prompts or reboot if asked, enable WSL integration, then rerun until Docker is detected. Use `SKIP_POST_CHECKS=1 ./scripts/setup-all.sh` to bypass verification, `POST_CHECK_MAX_RETRIES=5` to expand recovery attempts, and inspect logs under `tmp/postcheck-*` if an issue persists. The script records progress in `tmp/setup-all.state`, so you can rerun it to resume where it left off; set `RESET_SETUP_STATE=1` if you need to force every step to re-execute.)
+5. Provision the cloud infrastructure manually if you skipped the wrapper:
    ./scripts/bootstrap-infra.sh
-5. Populate GitHub environment secrets (requires `gh auth login`; defaults are detected from Terraform outputs):
+6. Populate GitHub environment secrets (requires `gh auth login`; defaults are detected from Terraform outputs):
    ./scripts/configure-github-env.sh staging
    ./scripts/configure-github-env.sh prod
-6. Update Cursor and editor extensions to the latest marketplace versions:
+7. Update Cursor and editor extensions to the latest marketplace versions:
    ./scripts/update-editor-extensions.sh
    ./scripts/verify-editor-extensions.sh --strict
    Commit `config/editor-extensions.lock.json` with the captured versions.
-7. Review the shared task manifest and update it with your assignments:
+8. Review the shared task manifest and update it with your assignments:
    ./scripts/task-context.sh --show
    ./scripts/task-context.sh --set currentGoal "Investigate login UX"
 
