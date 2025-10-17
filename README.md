@@ -59,7 +59,26 @@ The codebase is organized as a PNPM workspace managed by Turbo.
 
 ## Getting Started
 
-### Recommended: automated setup
+### Step 1: Get the repository onto your machine
+
+If you are starting from a clean workstation, install Git (and the basic shell tooling) before cloning:
+
+- **Windows:** Open an elevated PowerShell window and run `winget install --id Git.Git -e --source winget`. Accept any prompts, then reopen PowerShell so `git` is on `PATH`. If winget is unavailable, install Git for Windows from https://git-scm.com/download/win.
+- **macOS:** Install the Xcode Command Line Tools (`xcode-select --install`). If you already use Homebrew, `brew install git` works too.
+- **Debian/Ubuntu:** `sudo apt-get update && sudo apt-get install -y git curl ca-certificates`.
+- **Fedora/RHEL/CentOS:** `sudo dnf install -y git curl ca-certificates`.
+- **Other distributions:** Install Git via your package manager or download from https://git-scm.com/downloads.
+
+Once Git is available, clone the repository and move into it:
+
+```bash
+git clone https://github.com/swb2019/ai-dev-platform.git
+cd ai-dev-platform
+```
+
+If you cannot install Git (for example due to corporate restrictions), download the ZIP from the GitHub UI, extract it, and continue from the extracted folder.
+
+### Step 2: Run the automated setup (recommended)
 
 - **Windows helper**
 
