@@ -113,9 +113,7 @@ function Ensure-WslInitialized {
     if ($process.ExitCode -eq 0) {
         return
     }
-    Write-Warning "WSL distribution '$Name' needs first-time setup. A new window will open; create your UNIX username and password, then exit."
-    Start-Process -FilePath "wsl.exe" -ArgumentList "-d $Name" -Wait
-    Read-Host "Press Enter after you have created the UNIX user and exited the WSL shell"
+    Ensure-WslDefaultUser -Name $Name
     $process = Start-Process -FilePath "wsl.exe" -ArgumentList $initCommand -NoNewWindow -PassThru -Wait
     if ($process.ExitCode -ne 0) {
         throw "Unable to initialize WSL distribution '$Name'. Launch it manually, ensure it works, then rerun this script."
@@ -142,6 +140,46 @@ function Invoke-Wsl {
         ExitCode = $exitCode
         Output   = $consoleOutput
     }
+}
+
+function Get-PreferredWslUserName {
+    $candidate = $env:USERNAME
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+        $candidate = "wsluser"
+    }
+    $candidate = $candidate.ToLowerInvariant()
+    $candidate = ($candidate -replace '[^a-z0-9]', '')
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+        $candidate = "wsluser"
+    }
+    if ($candidate.Length -gt 32) {
+        $candidate = $candidate.Substring(0, 32)
+    }
+    return $candidate
+}
+
+function Ensure-WslDefaultUser {
+    param([string]$Name)
+    Write-Section "Configuring default user for WSL distribution '$Name'"
+    $user = Get-PreferredWslUserName
+    $bootstrap = @"
+set -euo pipefail
+user="$user"
+if id "\$user" >/dev/null 2>&1; then
+  exit 0
+fi
+useradd --create-home --shell /bin/bash "\$user"
+usermod -aG sudo "\$user"
+mkdir -p /etc/sudoers.d
+echo "\$user ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/\$user
+chmod 440 /etc/sudoers.d/\$user
+printf '[user]\ndefault=%s\n' "\$user" >/etc/wsl.conf
+"@
+    $result = Invoke-Wsl -Command $bootstrap -AsRoot
+    if ($result.ExitCode -ne 0) {
+        throw "Failed to configure WSL user (exit $($result.ExitCode))."
+    }
+    wsl.exe --terminate $Name | Out-Null
 }
 
 function Ensure-WslPackages {
