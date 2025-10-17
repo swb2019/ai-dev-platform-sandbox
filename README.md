@@ -69,16 +69,28 @@ Install Git (and the supporting shell tools) on Windows if the machine is brand 
   ```
   Accept any prompts, then restart PowerShell so `git` is on `PATH`. If winget is unavailable, download Git for Windows from https://git-scm.com/download/win and rerun PowerShell.
 
-After Git is ready, create a working directory at `C:\dev` (if it does not already exist), clone the repository into it, and switch into the project folder:
+After Git is ready, create a working directory at `C:\\dev` (if it does not already exist), clone the repository into it (or fast-forward it if it already exists), and switch into the project folder. The following PowerShell block is idempotent—rerunning it will simply update the checkout:
 
 ```powershell
-New-Item -ItemType Directory -Force -Path C:\dev | Out-Null
-Set-Location C:\dev
-git clone https://github.com/swb2019/ai-dev-platform.git
-Set-Location .\ai-dev-platform
+$workspace = 'C:\dev'
+$repoPath = Join-Path $workspace 'ai-dev-platform'
+New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+Set-Location $workspace
+
+if (Test-Path (Join-Path $repoPath '.git')) {
+  Set-Location $repoPath
+  git fetch origin
+  git checkout main
+  git pull --ff-only origin main
+} elseif (Test-Path $repoPath) {
+  throw "Path $repoPath already exists but is not a Git repository. Move or remove it, then rerun this block."
+} else {
+  git clone https://github.com/swb2019/ai-dev-platform.git
+  Set-Location $repoPath
+}
 ```
 
-If Git cannot be installed (for example, on tightly managed devices), download the repository ZIP from GitHub, extract it under `C:\dev`, and continue inside the extracted folder in PowerShell or Windows Terminal.
+If Git cannot be installed (for example, on tightly managed devices), download the repository ZIP from GitHub, extract it under `C:\\dev\\ai-dev-platform`, and continue inside that folder. To refresh the code later, replace the extracted folder with a fresh ZIP or convert it into a Git clone.
 
 ### Step 2: Run the automated setup (Windows)
 
@@ -88,7 +100,7 @@ If Git cannot be installed (for example, on tightly managed devices), download t
   powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1 [-DockerInstallerPath C:\path\to\DockerDesktopInstaller.exe]
   ```
 
-  Launches WSL2 (if needed), sets the default distro, provisions Docker Desktop with WSL integration, clones this repository into Linux, and invokes `./scripts/setup-all.sh`. Re-run the command after completing any prompts; finished stages are skipped automatically. Use `-RepoSlug your-user/ai-dev-platform` or `-Branch feature` to target a fork/branch. Provide `-DockerInstallerPath` or set `DOCKER_DESKTOP_INSTALLER` when operating in offline or proxy-restricted environments.
+  Launches WSL2 (if needed), sets the default distro, provisions Docker Desktop with WSL integration, clones this repository into Linux, and invokes `./scripts/setup-all.sh`. The helper is idempotent: re-running the command resumes from the recorded checkpoints in `tmp\setup-all.state`, fast-forwards the Git checkout, and skips work that already succeeded. Use `-RepoSlug your-user/ai-dev-platform` or `-Branch feature` to target a fork/branch. Provide `-DockerInstallerPath` or set `DOCKER_DESKTOP_INSTALLER` when operating in offline or proxy-restricted environments.
 
 - **Already inside WSL (optional manual run)**
 
@@ -96,18 +108,18 @@ If Git cannot be installed (for example, on tightly managed devices), download t
   ./scripts/setup-all.sh
   ```
 
-  Run this from the repository root inside WSL if you prefer to execute the consolidated setup manually. The wrapper installs OS-level packages with `apt`, ensures Node.js/pnpm/gh/gcloud/terraform, validates Docker availability (via Docker Desktop integration), runs onboarding, infrastructure bootstrap, repository hardening, and verifies the workspace (`docker info`, `pnpm lint`, `pnpm type-check`, `pnpm --filter @ai-dev-platform/web test`). Every verification step has built-in recovery—Docker checks reinvoke the runtime helper, while pnpm failures trigger reinstall/fix routines. Progress is checkpointed in `tmp/setup-all.state`, so subsequent runs resume where they left off. Set `RESET_SETUP_STATE=1 ./scripts/setup-all.sh` to force a full rerun. Additional knobs include `SKIP_POST_CHECKS=1` to skip verification, `POST_CHECK_MAX_RETRIES=5` (for example) to allow extra recovery attempts, `DOCKER_DESKTOP_INSTALLER` for offline Docker Desktop installs, and log capture under `tmp/postcheck-*.log`.
+  Run this from the repository root inside WSL if you prefer to execute the consolidated setup manually. The wrapper installs OS-level packages with `apt`, ensures Node.js/pnpm/gh/gcloud/terraform, validates Docker availability (via Docker Desktop integration), runs onboarding, infrastructure bootstrap, repository hardening, and verifies the workspace (`docker info`, `pnpm lint`, `pnpm type-check`, `pnpm --filter @ai-dev-platform/web test`). Each stage records its completion, so rerunning `./scripts/setup-all.sh` is safe: it reuses prior results, retries only the failed step, and leaves a summary in `tmp/setup-all.state`. Set `RESET_SETUP_STATE=1 ./scripts/setup-all.sh` to force a full rerun. Additional knobs include `SKIP_POST_CHECKS=1` to skip verification, `POST_CHECK_MAX_RETRIES=5` (for example) to allow extra recovery attempts, `DOCKER_DESKTOP_INSTALLER` for offline Docker Desktop installs, and log capture under `tmp/postcheck-*.log`.
 
-### Manual prerequisites (Windows fallback)
+### Manual prerequisites (fallback)
 
-The automated script handles prerequisites whenever it has the required permissions, package availability, and network access. If it reports that a dependency must be installed manually (common on managed corporate laptops or air-gapped environments), install the following inside WSL (or on Windows where noted) and re-run `./scripts/setup-all.sh` afterward:
+The automated script handles prerequisites whenever it has the required permissions, package manager, and network access. If it reports that a dependency must be installed manually (common on managed corporate laptops or air-gapped environments), provision the following and re-run `./scripts/setup-all.sh` afterward:
 
 1. **Node.js 20.x and pnpm 9** – enable Corepack and activate pnpm 9.12.0:
    ```bash
    corepack enable && corepack prepare pnpm@9.12.0 --activate
    ```
 2. **Docker** – install Docker Desktop/Engine and ensure the daemon responds to `docker info`.
-3. **Google Cloud CLI (`gcloud`), Terraform CLI, GitHub CLI (`gh`)** – install within WSL and authenticate against the target GCP project and GitHub organization.
+3. **Google Cloud CLI (`gcloud`), Terraform CLI, GitHub CLI (`gh`)** – authenticate against the target GCP project and GitHub organization.
 4. **Playwright system dependencies** – install once locally for browser automation:
    ```bash
    pnpm --filter @ai-dev-platform/web exec playwright install --with-deps
