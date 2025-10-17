@@ -167,8 +167,16 @@ function Install-DockerDesktopFromUrl {
         UseBasicParsing = $true
     }
     if ($env:HTTPS_PROXY -or $env:HTTP_PROXY) {
-        $invokeParams["Proxy"] = $env:HTTPS_PROXY ?? $env:HTTP_PROXY
-        $invokeParams["ProxyUseDefaultCredentials"] = $true
+        $proxy = $null
+        if ($env:HTTPS_PROXY) {
+            $proxy = $env:HTTPS_PROXY
+        } elseif ($env:HTTP_PROXY) {
+            $proxy = $env:HTTP_PROXY
+        }
+        if ($proxy) {
+            $invokeParams["Proxy"] = $proxy
+            $invokeParams["ProxyUseDefaultCredentials"] = $true
+        }
     }
     try {
         Invoke-WebRequest @invokeParams
@@ -214,38 +222,39 @@ function Ensure-DockerDesktop {
             }
         }
         if (-not (Test-Path $dockerExe)) {
-        Ensure-Winget
-        Write-Host "Docker Desktop not detected. Installing via winget..."
-        winget install -e --id Docker.DockerDesktop --accept-package-agreements --accept-source-agreements
-        $wingetExit = $LASTEXITCODE
-        switch ($wingetExit) {
-            0 { }
-            3010 {
-                Write-Warning "Docker Desktop installation requires a Windows restart. Reboot, then rerun this script."
-                exit 1
-            }
-            default {
-                Write-Warning "winget failed to install Docker Desktop (exit $wingetExit). Attempting direct installer download."
-                try {
-                    $directExit = Install-DockerDesktopFromUrl
-                } catch {
-                    if ($DockerInstallerPath) {
-                        Write-Warning "Download failed: $($_.Exception.Message)"
-                        $directExit = Install-DockerDesktopFromPath -Path $DockerInstallerPath
-                    } else {
-                        throw
-                    }
+            Ensure-Winget
+            Write-Host "Docker Desktop not detected. Installing via winget..."
+            winget install -e --id Docker.DockerDesktop --accept-package-agreements --accept-source-agreements
+            $wingetExit = $LASTEXITCODE
+            switch ($wingetExit) {
+                0 { }
+                3010 {
+                    Write-Warning "Docker Desktop installation requires a Windows restart. Reboot, then rerun this script."
+                    exit 1
                 }
-                switch ($directExit) {
-                    0 {
-                        Write-Warning "Docker Desktop installer completed. Ensure Docker Desktop launches successfully, then rerun this script if required."
+                default {
+                    Write-Warning "winget failed to install Docker Desktop (exit $wingetExit). Attempting direct installer download."
+                    try {
+                        $directExit = Install-DockerDesktopFromUrl
+                    } catch {
+                        if ($DockerInstallerPath) {
+                            Write-Warning "Download failed: $($_.Exception.Message)"
+                            $directExit = Install-DockerDesktopFromPath -Path $DockerInstallerPath
+                        } else {
+                            throw
+                        }
                     }
-                    3010 {
-                        Write-Warning "Docker Desktop installer signaled a reboot requirement. Restart Windows, then rerun this script."
-                        exit 1
-                    }
-                    default {
-                        throw "Docker Desktop installer exited with code $directExit. Provide a valid installer via -DockerInstallerPath or install manually."
+                    switch ($directExit) {
+                        0 {
+                            Write-Warning "Docker Desktop installer completed. Ensure Docker Desktop launches successfully, then rerun this script if required."
+                        }
+                        3010 {
+                            Write-Warning "Docker Desktop installer signaled a reboot requirement. Restart Windows, then rerun this script."
+                            exit 1
+                        }
+                        default {
+                            throw "Docker Desktop installer exited with code $directExit. Provide a valid installer via -DockerInstallerPath or install manually."
+                        }
                     }
                 }
             }
@@ -351,7 +360,8 @@ function Prompt-OptionalToken {
         [string]$EnvName,
         [string]$PromptMessage
     )
-    if ($env:$EnvName) {
+    $current = [Environment]::GetEnvironmentVariable($EnvName, "Process")
+    if (-not [string]::IsNullOrEmpty($current)) {
         return $false
     }
     $secure = Read-Host "$PromptMessage (press Enter to skip)" -AsSecureString
@@ -365,7 +375,7 @@ function Prompt-OptionalToken {
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
     }
     if ($value) {
-        Set-Item -Path ("Env:{0}" -f $EnvName) -Value $value
+        [Environment]::SetEnvironmentVariable($EnvName, $value, "Process")
         return $true
     }
     return $false
