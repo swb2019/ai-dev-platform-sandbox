@@ -59,26 +59,28 @@ The codebase is organized as a PNPM workspace managed by Turbo.
 
 ## Getting Started
 
-### Step 1: Get the repository onto your machine
+### Step 1: Prepare Windows and clone the repository
 
-If you are starting from a clean workstation, install Git (and the basic shell tooling) before cloning:
+Install Git (and the supporting shell tools) on Windows if the machine is brand new:
 
-- **Windows:** Open an elevated PowerShell window and run `winget install --id Git.Git -e --source winget`. Accept any prompts, then reopen PowerShell so `git` is on `PATH`. If winget is unavailable, install Git for Windows from https://git-scm.com/download/win.
-- **macOS:** Install the Xcode Command Line Tools (`xcode-select --install`). If you already use Homebrew, `brew install git` works too.
-- **Debian/Ubuntu:** `sudo apt-get update && sudo apt-get install -y git curl ca-certificates`.
-- **Fedora/RHEL/CentOS:** `sudo dnf install -y git curl ca-certificates`.
-- **Other distributions:** Install Git via your package manager or download from https://git-scm.com/downloads.
+- Open an elevated PowerShell window and run:
+  ```powershell
+  winget install --id Git.Git -e --source winget
+  ```
+  Accept any prompts, then restart PowerShell so `git` is on `PATH`. If winget is unavailable, download Git for Windows from https://git-scm.com/download/win and rerun PowerShell.
 
-Once Git is available, clone the repository and move into it:
+After Git is ready, create a working directory at `C:\dev` (if it does not already exist), clone the repository into it, and switch into the project folder:
 
-```bash
+```powershell
+New-Item -ItemType Directory -Force -Path C:\dev | Out-Null
+Set-Location C:\dev
 git clone https://github.com/swb2019/ai-dev-platform.git
-cd ai-dev-platform
+Set-Location .\ai-dev-platform
 ```
 
-If you cannot install Git (for example due to corporate restrictions), download the ZIP from the GitHub UI, extract it, and continue from the extracted folder.
+If Git cannot be installed (for example, on tightly managed devices), download the repository ZIP from GitHub, extract it under `C:\dev`, and continue inside the extracted folder in PowerShell or Windows Terminal.
 
-### Step 2: Run the automated setup (recommended)
+### Step 2: Run the automated setup (Windows)
 
 - **Windows helper**
 
@@ -88,26 +90,24 @@ If you cannot install Git (for example due to corporate restrictions), download 
 
   Launches WSL2 (if needed), sets the default distro, provisions Docker Desktop with WSL integration, clones this repository into Linux, and invokes `./scripts/setup-all.sh`. Re-run the command after completing any prompts; finished stages are skipped automatically. Use `-RepoSlug your-user/ai-dev-platform` or `-Branch feature` to target a fork/branch. Provide `-DockerInstallerPath` or set `DOCKER_DESKTOP_INSTALLER` when operating in offline or proxy-restricted environments.
 
-- **macOS/Linux/WSL**
+- **Already inside WSL (optional manual run)**
 
   ```bash
   ./scripts/setup-all.sh
   ```
 
-  The wrapper installs OS-level packages (apt, dnf, Homebrew), ensures Node.js/pnpm/gh/gcloud/terraform, validates Docker availability, runs onboarding, infrastructure bootstrap, repository hardening, and verifies the workspace (`docker info`, `pnpm lint`, `pnpm type-check`, `pnpm --filter @ai-dev-platform/web test`). Every verification step has built-in recovery—Docker checks reinvoke the runtime helper, while pnpm failures trigger reinstall/fix routines. On WSL the script can launch Docker Desktop via `winget` or a supplied installer; complete Windows prompts or reboot if requested, enable WSL integration, then re-run until the checks succeed.
+  Run this from the repository root inside WSL if you prefer to execute the consolidated setup manually. The wrapper installs OS-level packages with `apt`, ensures Node.js/pnpm/gh/gcloud/terraform, validates Docker availability (via Docker Desktop integration), runs onboarding, infrastructure bootstrap, repository hardening, and verifies the workspace (`docker info`, `pnpm lint`, `pnpm type-check`, `pnpm --filter @ai-dev-platform/web test`). Every verification step has built-in recovery—Docker checks reinvoke the runtime helper, while pnpm failures trigger reinstall/fix routines. Progress is checkpointed in `tmp/setup-all.state`, so subsequent runs resume where they left off. Set `RESET_SETUP_STATE=1 ./scripts/setup-all.sh` to force a full rerun. Additional knobs include `SKIP_POST_CHECKS=1` to skip verification, `POST_CHECK_MAX_RETRIES=5` (for example) to allow extra recovery attempts, `DOCKER_DESKTOP_INSTALLER` for offline Docker Desktop installs, and log capture under `tmp/postcheck-*.log`.
 
-  Progress is checkpointed in `tmp/setup-all.state`, so subsequent runs resume where they left off. Set `RESET_SETUP_STATE=1 ./scripts/setup-all.sh` to force a full rerun. Additional knobs include `SKIP_POST_CHECKS=1` to skip verification, `POST_CHECK_MAX_RETRIES=5` (for example) to allow extra recovery attempts, `DOCKER_DESKTOP_INSTALLER` for offline Docker Desktop installs, and log capture under `tmp/postcheck-*.log`.
+### Manual prerequisites (Windows fallback)
 
-### Manual prerequisites (fallback)
-
-The automated script handles prerequisites whenever it has the required permissions, package manager, and network access. If it reports that a dependency must be installed manually (common on managed corporate laptops or air-gapped environments), provision the following and re-run `./scripts/setup-all.sh` afterward:
+The automated script handles prerequisites whenever it has the required permissions, package availability, and network access. If it reports that a dependency must be installed manually (common on managed corporate laptops or air-gapped environments), install the following inside WSL (or on Windows where noted) and re-run `./scripts/setup-all.sh` afterward:
 
 1. **Node.js 20.x and pnpm 9** – enable Corepack and activate pnpm 9.12.0:
    ```bash
    corepack enable && corepack prepare pnpm@9.12.0 --activate
    ```
 2. **Docker** – install Docker Desktop/Engine and ensure the daemon responds to `docker info`.
-3. **Google Cloud CLI (`gcloud`), Terraform CLI, GitHub CLI (`gh`)** – authenticate against the target GCP project and GitHub organization.
+3. **Google Cloud CLI (`gcloud`), Terraform CLI, GitHub CLI (`gh`)** – install within WSL and authenticate against the target GCP project and GitHub organization.
 4. **Playwright system dependencies** – install once locally for browser automation:
    ```bash
    pnpm --filter @ai-dev-platform/web exec playwright install --with-deps
