@@ -406,13 +406,8 @@ function Prompt-OptionalToken {
         [string]$EnvName,
         [string]$PromptMessage
     )
-<<<<<<< Updated upstream
-    $current = [Environment]::GetEnvironmentVariable($EnvName, "Process")
-    if (-not [string]::IsNullOrEmpty($current)) {
-=======
     $current = [Environment]::GetEnvironmentVariable($EnvName, 'Process')
     if (-not [string]::IsNullOrWhiteSpace($current)) {
->>>>>>> Stashed changes
         return $false
     }
     $secure = Read-Host "$PromptMessage (press Enter to skip)" -AsSecureString
@@ -426,11 +421,7 @@ function Prompt-OptionalToken {
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
     }
     if ($value) {
-<<<<<<< Updated upstream
-        [Environment]::SetEnvironmentVariable($EnvName, $value, "Process")
-=======
         [Environment]::SetEnvironmentVariable($EnvName, $value, 'Process')
->>>>>>> Stashed changes
         return $true
     }
     return $false

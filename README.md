@@ -69,7 +69,7 @@ Install Git (and the supporting shell tools) on Windows if the machine is brand 
   ```
   Accept any prompts, then restart PowerShell so `git` is on `PATH`. If winget is unavailable, download Git for Windows from https://git-scm.com/download/win and rerun PowerShell.
 
-After Git is ready, create a working directory at `C:\\dev` (if it does not already exist), clone the repository into it (or fast-forward it if it already exists), and switch into the project folder. The following PowerShell block is idempotent—rerunning it will simply update the checkout:
+After Git is ready, create a working directory at `C:\dev` (if it does not already exist), clone the repository into it (or fast-forward it if it already exists), and switch into the project folder. The following PowerShell block is idempotent—rerunning it will simply update the checkout:
 
 ```powershell
 $workspace = 'C:\dev'
@@ -90,7 +90,7 @@ if (Test-Path (Join-Path $repoPath '.git')) {
 }
 ```
 
-If Git cannot be installed (for example, on tightly managed devices), download the repository ZIP from GitHub, extract it under `C:\\dev\\ai-dev-platform`, and continue inside that folder. To refresh the code later, replace the extracted folder with a fresh ZIP or convert it into a Git clone.
+If Git cannot be installed (for example, on tightly managed devices), download the repository ZIP from GitHub, extract it under `C:\dev\ai-dev-platform`, and continue inside that folder. To refresh the code later, replace the extracted folder with a fresh ZIP or convert it into a Git clone.
 
 ### Step 2: Run the automated setup (Windows)
 
@@ -100,7 +100,7 @@ If Git cannot be installed (for example, on tightly managed devices), download t
   powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1 [-DockerInstallerPath C:\path\to\DockerDesktopInstaller.exe]
   ```
 
-  Launches WSL2 (if needed), sets the default distro, provisions Docker Desktop with WSL integration, clones this repository into Linux, and invokes `./scripts/setup-all.sh`. On brand-new installations it seeds the default Linux user automatically, so the run proceeds end-to-end without interactive pauses. Re-running the helper is safe: it resumes from checkpoints in `tmp\setup-all.state`, fast-forwards the Git checkout, and skips work that already succeeded. Use `-RepoSlug your-user/ai-dev-platform` or `-Branch feature` to target a fork/branch. Provide `-DockerInstallerPath` or set `DOCKER_DESKTOP_INSTALLER` when operating in offline or proxy-restricted environments.
+  Launches WSL2 (if needed), sets the default distro, provisions Docker Desktop with WSL integration, clones this repository into Linux, and invokes `./scripts/setup-all.sh`. On brand-new installations it seeds the default Linux user automatically, so the run proceeds end-to-end without interactive pauses. Re-running the helper is safe: it resumes from checkpoints stored under `~/.cache/ai-dev-platform/setup-state` inside WSL, fast-forwards the Git checkout, and skips work that already succeeded. Use `-RepoSlug your-user/ai-dev-platform` or `-Branch feature` to target a fork/branch. Provide `-DockerInstallerPath` or set `DOCKER_DESKTOP_INSTALLER` when operating in offline or proxy-restricted environments.
 
 - **Already inside WSL (optional manual run)**
 
