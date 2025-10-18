@@ -11,9 +11,18 @@ ONBOARD_SCRIPT="$ROOT_DIR/scripts/onboard.sh"
 BOOTSTRAP_SCRIPT="$ROOT_DIR/scripts/bootstrap-infra.sh"
 HARDENING_SCRIPT="$ROOT_DIR/scripts/github-hardening.sh"
 
-STATE_DIR="$ROOT_DIR/tmp"
+STATE_DIR="${SETUP_STATE_DIR:-$ROOT_DIR/tmp}"
+STATE_DIR="${STATE_DIR%/}"
 STATE_FILE="$STATE_DIR/setup-all.state"
 declare -A STEP_STATE=()
+
+ensure_state_dir() {
+  if [[ -n "$STATE_DIR" && ! -d "$STATE_DIR" ]]; then
+    mkdir -p "$STATE_DIR"
+  fi
+}
+
+ensure_state_dir
 
 log() {
   printf '\n[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1"

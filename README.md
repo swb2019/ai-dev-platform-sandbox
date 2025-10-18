@@ -100,15 +100,15 @@ If Git cannot be installed (for example, on tightly managed devices), download t
   powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1 [-DockerInstallerPath C:\path\to\DockerDesktopInstaller.exe]
   ```
 
-  Launches WSL2 (if needed), sets the default distro, provisions Docker Desktop with WSL integration, clones this repository into Linux, and invokes `./scripts/setup-all.sh`. On brand-new installations it seeds the default Linux user automatically, so no interactive username/password prompts block the run. The helper is idempotent: re-running the command resumes from the recorded checkpoints in `tmp\setup-all.state`, fast-forwards the Git checkout, and skips work that already succeeded. Use `-RepoSlug your-user/ai-dev-platform` or `-Branch feature` to target a fork/branch. Provide `-DockerInstallerPath` or set `DOCKER_DESKTOP_INSTALLER` when operating in offline or proxy-restricted environments.
+  Launches WSL2 (if needed), sets the default distro, provisions Docker Desktop with WSL integration, clones this repository into Linux, and invokes `./scripts/setup-all.sh`. On brand-new installations it seeds the default Linux user automatically, so the run proceeds end-to-end without interactive pauses. Re-running the helper is safe: it resumes from checkpoints in `tmp\setup-all.state`, fast-forwards the Git checkout, and skips work that already succeeded. Use `-RepoSlug your-user/ai-dev-platform` or `-Branch feature` to target a fork/branch. Provide `-DockerInstallerPath` or set `DOCKER_DESKTOP_INSTALLER` when operating in offline or proxy-restricted environments.
 
 - **Already inside WSL (optional manual run)**
 
   ```bash
-  ./scripts/setup-all.sh
+  SETUP_STATE_DIR="$HOME/.cache/ai-dev-platform/setup-state" ./scripts/setup-all.sh
   ```
 
-  Run this from the repository root inside WSL if you prefer to execute the consolidated setup manually. The wrapper installs OS-level packages with `apt`, ensures Node.js/pnpm/gh/gcloud/terraform, validates Docker availability (via Docker Desktop integration), runs onboarding, infrastructure bootstrap, repository hardening, and verifies the workspace (`docker info`, `pnpm lint`, `pnpm type-check`, `pnpm --filter @ai-dev-platform/web test`). Each stage records its completion, so rerunning `./scripts/setup-all.sh` is safe: it reuses prior results, retries only the failed step, and leaves a summary in `tmp/setup-all.state`. Set `RESET_SETUP_STATE=1 ./scripts/setup-all.sh` to force a full rerun. Additional knobs include `SKIP_POST_CHECKS=1` to skip verification, `POST_CHECK_MAX_RETRIES=5` (for example) to allow extra recovery attempts, `DOCKER_DESKTOP_INSTALLER` for offline Docker Desktop installs, and log capture under `tmp/postcheck-*.log`.
+  Run this from the repository root inside WSL if you prefer to execute the consolidated setup manually. The wrapper installs OS-level packages with `apt`, ensures Node.js/pnpm/gh/gcloud/terraform, validates Docker availability (via Docker Desktop integration), runs onboarding, infrastructure bootstrap, repository hardening, and verifies the workspace (`docker info`, `pnpm lint`, `pnpm type-check`, `pnpm --filter @ai-dev-platform/web test`). Each stage records its completion, so rerunning `./scripts/setup-all.sh` is safe: it reuses prior results, retries only the failed step, and writes checkpoints to `~/.cache/ai-dev-platform/setup-state`. Set `RESET_SETUP_STATE=1 ./scripts/setup-all.sh` to force a full rerun. Additional knobs include `SKIP_POST_CHECKS=1` to skip verification, `POST_CHECK_MAX_RETRIES=5` (for example) to allow extra recovery attempts, `DOCKER_DESKTOP_INSTALLER` for offline Docker Desktop installs, and log capture under `tmp/postcheck-*.log`.
 
 ### Manual prerequisites (fallback)
 
