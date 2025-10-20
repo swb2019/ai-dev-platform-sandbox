@@ -213,19 +213,19 @@ function Test-NetworkConnectivity {
     )
     Write-Section "Checking network connectivity"
     $failures = @()
-    foreach ($host in $Hosts) {
+    foreach ($targetHost in $Hosts) {
         try {
             if (Get-Command Test-NetConnection -ErrorAction SilentlyContinue) {
-                $result = Test-NetConnection -ComputerName $host -Port $Port -WarningAction SilentlyContinue
+                $result = Test-NetConnection -ComputerName $targetHost -Port $Port -WarningAction SilentlyContinue
                 if (-not $result.TcpTestSucceeded) {
                     throw "TCP test failed."
                 }
             } else {
-                Invoke-WebRequest -Uri "https://$host" -Method Head -TimeoutSec 10 -UseBasicParsing | Out-Null
+                Invoke-WebRequest -Uri "https://$targetHost" -Method Head -TimeoutSec 10 -UseBasicParsing | Out-Null
             }
         } catch {
-            Write-Warning ("Unable to reach {0}:{1}. Ensure firewalls or proxies allow outbound HTTPS. Error: {2}" -f $host, $Port, $_.Exception.Message)
-            $failures += $host
+            Write-Warning ("Unable to reach {0}:{1}. Ensure firewalls or proxies allow outbound HTTPS. Error: {2}" -f $targetHost, $Port, $_.Exception.Message)
+            $failures += $targetHost
         }
     }
     if ($failures.Count -gt 0) {
