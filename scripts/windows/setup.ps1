@@ -224,7 +224,7 @@ function Test-NetworkConnectivity {
                 Invoke-WebRequest -Uri "https://$host" -Method Head -TimeoutSec 10 -UseBasicParsing | Out-Null
             }
         } catch {
-            Write-Warning "Unable to reach $host:$Port. Ensure firewalls or proxies allow outbound HTTPS. Error: $($_.Exception.Message)"
+            Write-Warning ("Unable to reach {0}:{1}. Ensure firewalls or proxies allow outbound HTTPS. Error: {2}" -f $host, $Port, $_.Exception.Message)
             $failures += $host
         }
     }
