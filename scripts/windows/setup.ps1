@@ -400,6 +400,10 @@ function Ensure-DockerDesktop {
 function Ensure-Repository {
     Write-Section "Cloning repository inside WSL"
     $cloneScript = @"
+user_home=\$(getent passwd \$(whoami) | cut -d: -f6)
+if [ -n \"\$user_home\" ]; then
+  export HOME=\"\$user_home\"
+fi
 if [ ! -d \$HOME/ai-dev-platform/.git ]; then
   git clone https://github.com/$RepoSlug.git \$HOME/ai-dev-platform
 fi
