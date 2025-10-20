@@ -11,10 +11,16 @@ Param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$script:DistroName = $DistroName
 if (-not $DockerInstallerPath -and $env:DOCKER_DESKTOP_INSTALLER) {
     $DockerInstallerPath = $env:DOCKER_DESKTOP_INSTALLER
 }
+
+if ($DistroName.StartsWith("[") -or $DistroName.StartsWith("-")) {
+    Write-Warning "Received DistroName '$DistroName'; resetting to 'Ubuntu'. Use -DistroName if you need a custom image."
+    $DistroName = "Ubuntu"
+}
+
+$script:DistroName = $DistroName
 
 function Write-Section {
     param([string]$Message)

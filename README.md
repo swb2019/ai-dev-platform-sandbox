@@ -97,10 +97,16 @@ If Git cannot be installed (for example, on tightly managed devices), download t
 - **Windows helper**
 
   ```powershell
-  powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1 [-DockerInstallerPath C:\path\to\DockerDesktopInstaller.exe] [-WslUserName devuser]
+  powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1
   ```
 
-  Launches WSL2 (if needed), sets the default distro, provisions Docker Desktop with WSL integration, clones this repository into Linux, and invokes `./scripts/setup-all.sh`. On brand-new installations it seeds the default Linux user automatically (supply `-WslUserName` to use a specific account), so the run proceeds end-to-end without interactive pauses. Re-running the helper is safe: it resumes from checkpoints stored under `~/.cache/ai-dev-platform/setup-state` inside WSL, fast-forwards the Git checkout, and skips work that already succeeded. Use `-RepoSlug your-user/ai-dev-platform` or `-Branch feature` to target a fork/branch. Provide `-DockerInstallerPath` or set `DOCKER_DESKTOP_INSTALLER` when operating in offline or proxy-restricted environments.
+  Optional flags let you point at a pre-downloaded Docker Desktop installer or seed a specific WSL username:
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1 -DockerInstallerPath C:\Installers\DockerDesktopInstaller.exe -WslUserName devuser
+  ```
+
+  Launches WSL2 (if needed), sets the default distro, provisions Docker Desktop with WSL integration, clones this repository into Linux, and invokes `./scripts/setup-all.sh`. On brand-new installations it seeds the default Linux user automatically (override with `-WslUserName` if you prefer a specific account), so the run proceeds end-to-end without interactive pauses. Re-running the helper is safe: it resumes from checkpoints stored under `~/.cache/ai-dev-platform/setup-state` inside WSL, fast-forwards the Git checkout, and skips work that already succeeded. Use `-RepoSlug your-user/ai-dev-platform` or `-Branch feature` to target a fork/branch. Provide `-DockerInstallerPath` or set `DOCKER_DESKTOP_INSTALLER` when operating in offline or proxy-restricted environments.
 
 - **Already inside WSL (optional manual run)**
 
