@@ -465,11 +465,13 @@ function Run-SetupAll {
     if ($envPrefix) {
         $commands += $envPrefix
     }
-    $commands += 'SETUP_STATE_DIR="${SETUP_STATE_DIR:-$HOME/.cache/ai-dev-platform/setup-state}"'
-    $commands += 'if [ -z "$SETUP_STATE_DIR" ]; then SETUP_STATE_DIR="$HOME/.cache/ai-dev-platform/setup-state"; fi'
-    $commands += 'STATE_PARENT="$(dirname "$SETUP_STATE_DIR")"'
-    $commands += 'if [ -z "$STATE_PARENT" ] || [ "$STATE_PARENT" = "." ]; then STATE_PARENT="$HOME/.cache/ai-dev-platform"; fi'
-    $commands += 'mkdir -p "$STATE_PARENT"'
+    $commands += 'if [ -z "${SETUP_STATE_DIR:-}" ]; then SETUP_STATE_DIR="$HOME/.cache/ai-dev-platform/setup-state"; fi'
+    $commands += 'STATE_PARENT="${SETUP_STATE_DIR%/*}"'
+    $commands += 'if [ -z "$STATE_PARENT" ] || [ "$STATE_PARENT" = "$SETUP_STATE_DIR" ]; then STATE_PARENT="$HOME/.cache/ai-dev-platform"; fi'
+    $commands += 'STATE_NAME="$(basename "$SETUP_STATE_DIR")"'
+    $commands += 'if [ -z "$STATE_NAME" ] || [ "$STATE_NAME" = "." ]; then STATE_NAME="setup-state"; fi'
+    $commands += 'SETUP_STATE_DIR="$STATE_PARENT/$STATE_NAME"'
+    $commands += 'mkdir -p "$STATE_PARENT" "$SETUP_STATE_DIR"'
     $commands += 'export SETUP_STATE_DIR'
     $commands += 'cd $HOME/ai-dev-platform'
     $commands += './scripts/setup-all.sh'
