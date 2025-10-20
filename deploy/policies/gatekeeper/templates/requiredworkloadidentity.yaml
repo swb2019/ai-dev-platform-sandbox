@@ -1,0 +1,50 @@
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequireworkloadidentity
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequireWorkloadIdentity
+      validation:
+        legacySchema: false
+        openAPIV3Schema:
+          properties:
+            exemptNamespaces:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequireworkloadidentity
+
+        is_exempt_namespace(ns) {
+          some exempt
+          input.parameters.exemptNamespaces[_] == exempt
+          ns == exempt
+        }
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "ServiceAccount"
+          not is_exempt_namespace(input.review.object.metadata.namespace)
+          annotations := input.review.object.metadata.annotations
+          annotations == null
+          msg := sprintf("service account %q in namespace %q must define annotation iam.gke.io/gcp-service-account", [input.review.object.metadata.name, input.review.object.metadata.namespace])
+        }
+
+        violation[{"msg": msg}] {
+          input.review.kind.kind == "ServiceAccount"
+          not is_exempt_namespace(input.review.object.metadata.namespace)
+          annotations := input.review.object.metadata.annotations
+          annotations != null
+          not has_wi_annotation(annotations)
+          msg := sprintf("service account %q in namespace %q must define annotation iam.gke.io/gcp-service-account", [input.review.object.metadata.name, input.review.object.metadata.namespace])
+        }
+
+        has_wi_annotation(annotations) {
+          ann := annotations["iam.gke.io/gcp-service-account"]
+          ann != ""
+          not contains(ann, "PLACEHOLDER")
+        }

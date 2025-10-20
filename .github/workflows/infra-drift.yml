@@ -1,0 +1,86 @@
+name: Infra Drift Detection
+
+on:
+  schedule:
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  terraform-drift:
+    name: Terraform Drift (staging)
+    runs-on: ubuntu-latest
+    if: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER != '' && secrets.TERRAFORM_SERVICE_ACCOUNT != '' && secrets.GCP_PROJECT_ID != '' && vars.STAGING_INFRA_ENABLED == 'true' }}
+    environment: staging
+    env:
+      TERRAFORM_VERSION: '1.8.5'
+      TERRAFORM_CONFIG_DIR: infra/terraform/envs/staging
+      TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+      TF_VAR_region: ${{ secrets.GCP_REGION }}
+      TF_VAR_github_repository: ${{ github.repository }}
+      TF_VAR_runtime_service_account_namespace: ${{ secrets.RUNTIME_KSA_NAMESPACE }}
+      TF_VAR_runtime_service_account_name: ${{ secrets.RUNTIME_KSA_NAME }}
+      TF_VAR_binary_authorization_attestors: ${{ secrets.BA_ATTESTORS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.TERRAFORM_SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          create_credentials_file: true
+
+      - name: Terraform Fmt
+        run: terraform fmt -check -recursive infra/terraform
+
+      - name: Terraform Init
+        working-directory: ${{ env.TERRAFORM_CONFIG_DIR }}
+        run: terraform init -upgrade
+
+      - name: Terraform Validate
+        working-directory: ${{ env.TERRAFORM_CONFIG_DIR }}
+        run: terraform validate
+
+      - name: Terraform Plan (detailed exit code)
+        id: plan
+        working-directory: ${{ env.TERRAFORM_CONFIG_DIR }}
+        run: |
+          set -eo pipefail
+          set +e
+          terraform plan -detailed-exitcode -out=tfplan
+          exit_code=$?
+          set -e
+          terraform show -no-color tfplan > plan.txt
+          if [[ ${exit_code} -eq 1 ]]; then
+            echo "Terraform plan failed"
+            exit 1
+          fi
+          if [[ ${exit_code} -eq 2 ]]; then
+            echo "drift_detected=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "drift_detected=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Upload Plan Artifact
+        if: steps.plan.outputs.drift_detected == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-drift-plan-staging
+          path: ${{ env.TERRAFORM_CONFIG_DIR }}/plan.txt
+
+      - name: Fail on drift
+        if: steps.plan.outputs.drift_detected == 'true'
+        run: |
+          echo "Terraform detected infrastructure drift. Review plan artifact and reconcile manually."
+          exit 1

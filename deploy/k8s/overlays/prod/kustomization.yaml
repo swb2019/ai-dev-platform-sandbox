@@ -9,10 +9,15 @@ labels:
 images:
   - name: IMAGE_PLACEHOLDER
     newName: IMAGE_PLACEHOLDER
+    digest: sha256:PLACEHOLDER_DIGEST
 patches:
   - path: patches/deployment-replicas.yaml
     target:
       kind: Deployment
+      name: web
+  - path: patches/gateway-host.yaml
+    target:
+      kind: Gateway
       name: web
   - path: patches/httproute-host.yaml
     target:

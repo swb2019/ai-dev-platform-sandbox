@@ -26,4 +26,4 @@ COPY --from=builder /app/apps/web/public ./apps/web/public
 USER nonroot
 EXPOSE 3000
 ENV PORT=3000
-CMD ["/usr/bin/node", "apps/web/server.js"]
+CMD ["apps/web/server.js"]

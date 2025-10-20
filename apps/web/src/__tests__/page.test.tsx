@@ -56,4 +56,12 @@ describe('Home page', () => {
       within(ctaSection).getByRole('link', { name: /View Documentation/i }),
     ).toBeInTheDocument();
   });
+
+  it('routes visitors to the internal documentation hub from the CTA', () => {
+    render(<Home />);
+
+    const docsLink = screen.getByRole('link', { name: /View Documentation/i });
+
+    expect(docsLink).toHaveAttribute('href', '/docs');
+  });
 });

@@ -201,6 +201,35 @@ Developers can run the same steps locally with:
 ./scripts/container/supply-chain.sh sign
 ```
 
+## Immutability Enforcement
+
+- Deployment workflows now call `scripts/kustomize/verify-overlay.sh` after patching the staging and production overlays. The helper fails fast if any placeholder image values or unsigned digests slip through:
+  ```bash
+  bash scripts/kustomize/verify-overlay.sh deploy/k8s/overlays/staging ghcr.io/example/web
+  ```
+  Use it locally before submitting a release to guarantee the overlay references a `sha256` digest and a real Workload Identity binding.
+- Gatekeeper policies under `deploy/policies/gatekeeper/` deny pods that omit image digests and block ServiceAccounts lacking Workload Identity annotations. Apply them per cluster with:
+  ```bash
+  ./scripts/policy/apply-gatekeeper.sh
+  ```
+- Repository hardening is automated by `scripts/github-hardening.sh`, which enables Advanced Security, configures environment reviewers, applies strict branch protection, and now enforces signed commits on `main`. Adjust defaults in `scripts/github-hardening.conf`, then run:
+  ```bash
+  gh auth login --scopes admin:repo_hook,repo
+  ./scripts/github-hardening.sh
+  ```
+  The script is idempotent and safe to re-run after adding new required checks or reviewers.
+- Scheduled drift detection (`.github/workflows/infra-drift.yml`) reruns Terraform plans with a detailed exit code. If drift is detected the pipeline fails and uploads the rendered plan artifact so platform engineers can reconcile state before it grows.
+- Agents should never touch the platform repository directly. Generate isolated workspaces with:
+  ```bash
+  scripts/agent/create-project-workspace.sh --name demo-project
+  ```
+  Point Codex/Claude at the sandbox, review their output manually, and promote only accepted changes back into the platform through signed commits.
+- Launch agents inside the hardened container wrapper to keep them away from host secrets:
+  ```bash
+  scripts/agent/run-sandbox-container.sh --workspace ../project-workspaces/demo-project
+  ```
+  This uses Docker with `--read-only`, dropped capabilities, memory/CPU limits, and disabled networking by default; enable connectivity only when supervised.
+
 ## Development Workflow
 
 This project enforces a consistent workflow to maintain quality, security, and reproducibility:
@@ -236,6 +265,8 @@ Detailed references are available in the `docs/` directory:
 - [Agent Protocols](docs/AGENT_PROTOCOLS.md)
 - [Onboarding Guide](docs/ONBOARDING.md)
 - [Release Runbook](docs/RELEASE_RUNBOOK.md)
+- [Hardening Runbook](docs/HARDENING_RUNBOOK.md)
+- [Agent Sandbox Workflow](docs/AGENT_SANDBOX.md)
 - [Agent Execution Specification](docs/agents/EXECUTION_SPEC.md)
 - [Agent Decision Playbook](docs/agents/DECISION_PLAYBOOK.md)
 - [Agent Risk Register](docs/agents/RISK_REGISTER.md)

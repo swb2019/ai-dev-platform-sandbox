@@ -1,0 +1,14 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredImageDigest
+metadata:
+  name: required-image-digest
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: ['']
+        kinds: ['Pod']
+  parameters:
+    exemptNamespaces:
+      - gatekeeper-system
+      - kube-system

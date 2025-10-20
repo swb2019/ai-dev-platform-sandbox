@@ -1,0 +1,15 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequireWorkloadIdentity
+metadata:
+  name: require-workload-identity-annotation
+spec:
+  enforcementAction: deny
+  match:
+    kinds:
+      - apiGroups: ['']
+        kinds: ['ServiceAccount']
+    namespaces:
+      - web
+  parameters:
+    exemptNamespaces:
+      - gatekeeper-system

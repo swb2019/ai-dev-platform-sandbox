@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { cn } from '@/lib/utils';
 import './globals.css';
@@ -64,17 +65,17 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
           <footer className="border-t border-white/10 bg-black/50 px-6 py-6 text-sm text-white/60 backdrop-blur">
             <div className="mx-auto flex w-full max-w-6xl flex-col items-start justify-between gap-4 md:flex-row md:items-center">
               <p>© {new Date().getFullYear()} AI Dev Platform. All rights reserved.</p>
-              <div className="flex gap-4">
-                <a className="hover:text-white" href="#privacy">
+              <nav className="flex gap-4">
+                <Link className="hover:text-white" href="/privacy">
                   Privacy
-                </a>
-                <a className="hover:text-white" href="#terms">
+                </Link>
+                <Link className="hover:text-white" href="/terms">
                   Terms
-                </a>
-                <a className="hover:text-white" href="#contact">
+                </Link>
+                <Link className="hover:text-white" href="/contact">
                   Contact
-                </a>
-              </div>
+                </Link>
+              </nav>
             </div>
           </footer>
         </div>

@@ -27,6 +27,8 @@ REQUIRE_CODE_OWNER_REVIEWS=true
 DISMISS_STALE_REVIEWS=true
 REQUIRE_CONVERSATION_RESOLUTION=true
 
+REQUIRE_SIGNED_COMMITS=true
+
 trim() {
   local value="$1"
   value="${value#${value%%[![:space:]]*}}"
@@ -288,6 +290,27 @@ EOF
     --input <(printf '%s' "$payload")
 }
 
+enforce_signed_commits() {
+  if [[ "$(to_bool "${REQUIRE_SIGNED_COMMITS:-true}")" != "true" ]]; then
+    echo "→ Skipping signed commit enforcement for ${PROTECTED_BRANCH}"
+    return
+  fi
+
+  echo "→ Requiring signed commits on ${PROTECTED_BRANCH}"
+  local response
+  if ! response=$(gh api \
+    -X POST \
+    -H "Accept: application/vnd.github+json" \
+    "repos/${FULL_REPO}/branches/${PROTECTED_BRANCH}/protection/required_signatures" 2>&1); then
+    if [[ "$response" == *"Required signatures already enabled"* ]]; then
+      echo "   Signed commits already enforced on ${PROTECTED_BRANCH}."
+    else
+      printf '%s\n' "$response" >&2
+      exit 1
+    fi
+  fi
+}
+
 resolve_reviewer_id() {
   local reviewer="$1"
   if [[ "$reviewer" == org:*/* ]]; then
@@ -367,6 +390,7 @@ main() {
   require_gh
   enable_security_features
   configure_branch_protection
+  enforce_signed_commits
 
   if [[ "$REMOVE_PROD_ENV" == true ]]; then
     delete_environment_if_exists "prod"

@@ -28,14 +28,21 @@ Staging workflow (`.github/workflows/deploy-staging.yml`):
 3. Installs Trivy, Grype, Syft, and Cosign and reuses `scripts/container/supply-chain.sh` to build, scan, generate an SBOM, and sign the image.
 4. Pushes the image to `STAGING_IMAGE_REPO` tagged with `github.sha`.
 5. Resolves the pushed digest (sha256 only), rewrites `deploy/k8s/overlays/staging/kustomization.yaml` to set `IMAGE_REPO` plus the digest field, and patches the ServiceAccount annotation with `STAGING_RUNTIME_GSA_EMAIL`.
-6. Fetches GKE credentials for `STAGING_GKE_CLUSTER` (in `STAGING_GKE_LOCATION`, project `STAGING_GCP_PROJECT_ID`), applies the overlay, and waits for rollout.
-7. The `e2e-validation` job runs after a successful deploy: it resolves the Gateway external IP, exports `E2E_TARGET_URL=http://<ip>`, installs dependencies and Playwright browsers, executes `pnpm --filter @ai-dev-platform/web test:e2e`, and fails the workflow on regression.
+6. Invokes `scripts/kustomize/verify-overlay.sh deploy/k8s/overlays/staging "$IMAGE_REPO"` to ensure the overlay references a real digest and Workload Identity binding before applying anything to the cluster.
+7. Fetches GKE credentials for `STAGING_GKE_CLUSTER` (in `STAGING_GKE_LOCATION`, project `STAGING_GCP_PROJECT_ID`), applies the overlay, and waits for rollout.
+8. The `e2e-validation` job runs after a successful deploy: it resolves the Gateway external IP, exports `E2E_TARGET_URL=http://<ip>`, installs dependencies and Playwright browsers, executes `pnpm --filter @ai-dev-platform/web test:e2e`, and fails the workflow on regression.
 
 Production workflow (`.github/workflows/deploy-production.yml`):
 
 1. Trigger: push of tags matching `v*.*.*`.
 2. Mirrors the staging workflow with production secrets (`PRODUCTION_*`).
-3. Tags container images with `github.ref_name`, injects the production digest and ServiceAccount annotation, and applies `deploy/k8s/overlays/prod`.
+3. Tags container images with `github.ref_name`, injects the production digest and ServiceAccount annotation, verifies the overlay via `scripts/kustomize/verify-overlay.sh`, and applies `deploy/k8s/overlays/prod`.
+
+Terraform drift detection (`.github/workflows/infra-drift.yml`):
+
+- Runs on a nightly schedule (05:00 UTC) and on-demand via workflow dispatch.
+- Authenticates with the same Workload Identity provider used for applies, initialises `infra/terraform/envs/staging`, and executes `terraform plan -detailed-exitcode`.
+- Uploads the rendered plan and fails the workflow when drift is detected so operators can reconcile early.
 
 Required GitHub secrets (store them as environment-scoped secrets):
 
@@ -67,7 +74,25 @@ kustomize build deploy/k8s/overlays/staging | kubectl apply -f -
 kustomize build deploy/k8s/overlays/prod | kubectl apply -f -
 ```
 
-Ensure the overlays reference the desired image digest and runtime GSA before applying manually.
+Ensure the overlays reference the desired image digest and runtime GSA before applying manually:
+
+```
+bash scripts/kustomize/verify-overlay.sh deploy/k8s/overlays/staging
+bash scripts/kustomize/verify-overlay.sh deploy/k8s/overlays/prod
+```
+
+## Admission Control (Gatekeeper)
+
+Apply the bundled Gatekeeper policies to enforce immutable images and Workload Identity bindings at the cluster boundary:
+
+```
+./scripts/policy/apply-gatekeeper.sh
+```
+
+- `deploy/policies/gatekeeper/templates/requiredimagedigest.yaml` denies Pods that reference mutable tags.
+- `deploy/policies/gatekeeper/templates/requiredworkloadidentity.yaml` ensures ServiceAccounts in the `web` namespace declare the `iam.gke.io/gcp-service-account` annotation.
+
+Extend the constraints with additional namespaces or exemptions as needed (for example, CI namespaces or system workloads).
 
 ## Next Steps
 

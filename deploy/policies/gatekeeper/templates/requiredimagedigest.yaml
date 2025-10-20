@@ -1,0 +1,51 @@
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: k8srequiredimagedigest
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sRequiredImageDigest
+      validation:
+        legacySchema: false
+        openAPIV3Schema:
+          properties:
+            exemptNamespaces:
+              type: array
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequiredimagedigest
+
+        is_exempt_namespace(ns) {
+          some exempt
+          input.parameters.exemptNamespaces[_] == exempt
+          ns == exempt
+        }
+
+        has_digest(image) {
+          contains(image, "@sha256:")
+        }
+
+        # Flag main containers without digests.
+        violation[{"msg": msg, "details": {"container": container.name, "image": container.image}}] {
+          input.review.kind.kind == "Pod"
+          not is_exempt_namespace(input.review.object.metadata.namespace)
+          container := input.review.object.spec.containers[_]
+          not has_digest(container.image)
+          msg := sprintf("container %q image %q must use an immutable sha256 digest", [container.name, container.image])
+        }
+
+        # Flag init containers without digests.
+        violation[{"msg": msg, "details": {"container": container.name, "image": container.image}}] {
+          input.review.kind.kind == "Pod"
+          not is_exempt_namespace(input.review.object.metadata.namespace)
+          containers := input.review.object.spec.initContainers
+          containers != null
+          container := containers[_]
+          not has_digest(container.image)
+          msg := sprintf("init container %q image %q must use an immutable sha256 digest", [container.name, container.image])
+        }

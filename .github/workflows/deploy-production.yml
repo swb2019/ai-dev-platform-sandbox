@@ -114,6 +114,11 @@ jobs:
           yq -i '.images = [{"name": "IMAGE_PLACEHOLDER", "newName": env(IMAGE_REPO), "digest": env(IMAGE_DIGEST)}]' deploy/k8s/overlays/prod/kustomization.yaml
           yq -i '.metadata.annotations."iam.gke.io/gcp-service-account" = env(RUNTIME_GSA)' deploy/k8s/overlays/prod/patches/serviceaccount-annotation.yaml
 
+      - name: Verify production overlay immutability
+        env:
+          EXPECTED_IMAGE_REPO: ${{ env.IMAGE_REPO }}
+        run: bash scripts/kustomize/verify-overlay.sh "${{ env.KUSTOMIZE_OVERLAY }}" "${EXPECTED_IMAGE_REPO}"
+
       - name: Fetch GKE credentials
         uses: google-github-actions/get-gke-credentials@v2
         with:
