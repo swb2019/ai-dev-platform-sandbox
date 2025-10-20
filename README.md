@@ -97,10 +97,10 @@ If Git cannot be installed (for example, on tightly managed devices), download t
 - **Windows helper**
 
   ```powershell
-  powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1 [-DockerInstallerPath C:\path\to\DockerDesktopInstaller.exe]
+  powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1 [-DockerInstallerPath C:\path\to\DockerDesktopInstaller.exe] [-WslUserName devuser]
   ```
 
-  Launches WSL2 (if needed), sets the default distro, provisions Docker Desktop with WSL integration, clones this repository into Linux, and invokes `./scripts/setup-all.sh`. On brand-new installations it seeds the default Linux user automatically, so the run proceeds end-to-end without interactive pauses. Re-running the helper is safe: it resumes from checkpoints stored under `~/.cache/ai-dev-platform/setup-state` inside WSL, fast-forwards the Git checkout, and skips work that already succeeded. Use `-RepoSlug your-user/ai-dev-platform` or `-Branch feature` to target a fork/branch. Provide `-DockerInstallerPath` or set `DOCKER_DESKTOP_INSTALLER` when operating in offline or proxy-restricted environments.
+  Launches WSL2 (if needed), sets the default distro, provisions Docker Desktop with WSL integration, clones this repository into Linux, and invokes `./scripts/setup-all.sh`. On brand-new installations it seeds the default Linux user automatically (supply `-WslUserName` to use a specific account), so the run proceeds end-to-end without interactive pauses. Re-running the helper is safe: it resumes from checkpoints stored under `~/.cache/ai-dev-platform/setup-state` inside WSL, fast-forwards the Git checkout, and skips work that already succeeded. Use `-RepoSlug your-user/ai-dev-platform` or `-Branch feature` to target a fork/branch. Provide `-DockerInstallerPath` or set `DOCKER_DESKTOP_INSTALLER` when operating in offline or proxy-restricted environments.
 
 - **Already inside WSL (optional manual run)**
 
@@ -112,7 +112,13 @@ If Git cannot be installed (for example, on tightly managed devices), download t
 
 ### Manual prerequisites (fallback)
 
-The automated script handles prerequisites whenever it has the required permissions, package manager, and network access. If it reports that a dependency must be installed manually (common on managed corporate laptops or air-gapped environments), provision the following and re-run `./scripts/setup-all.sh` afterward:
+The automated script handles prerequisites whenever it has the required permissions, package manager, and network access. Before running it, confirm:
+
+- You are in an elevated PowerShell session (Run as Administrator).
+- The Microsoft App Installer / `winget` is available; install it from the Microsoft Store if it is missing.
+- Outbound HTTPS to key endpoints such as `github.com`, `download.docker.com`, and `aka.ms` is permitted by your firewall or proxy.
+
+If the helper reports that a dependency must be installed manually (common on managed corporate laptops or air-gapped environments), provision the following and re-run `./scripts/setup-all.sh` afterward:
 
 1. **Node.js 20.x and pnpm 9** – enable Corepack and activate pnpm 9.12.0:
    ```bash

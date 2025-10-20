@@ -4,7 +4,8 @@ Param(
     [string]$DistroName = "Ubuntu",
     [switch]$SkipDockerInstall,
     [switch]$SkipSetupAll,
-    [string]$DockerInstallerPath
+    [string]$DockerInstallerPath,
+    [string]$WslUserName
 )
 
 Set-StrictMode -Version Latest
@@ -132,9 +133,11 @@ function Invoke-Wsl {
         $args += @("-u", "root")
     }
     $args += @("--", "bash", "-lc", $prefix)
-    $buffer = @()
-    & wsl.exe @args 2>&1 | Tee-Object -Variable buffer
+    $buffer = & wsl.exe @args 2>&1
     $exitCode = $LASTEXITCODE
+    if ($buffer) {
+        $buffer | ForEach-Object { Write-Host $_ }
+    }
     $consoleOutput = ($buffer | Out-String).TrimEnd()
     return [PSCustomObject]@{
         ExitCode = $exitCode
@@ -142,20 +145,35 @@ function Invoke-Wsl {
     }
 }
 
-function Get-PreferredWslUserName {
-    $candidate = $env:USERNAME
-    if ([string]::IsNullOrWhiteSpace($candidate)) {
-        $candidate = "wsluser"
+function Normalize-WslUserName {
+    param([string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return $null
     }
-    $candidate = $candidate.ToLowerInvariant()
+    $candidate = $Name.ToLowerInvariant()
     $candidate = ($candidate -replace '[^a-z0-9]', '')
     if ([string]::IsNullOrWhiteSpace($candidate)) {
-        $candidate = "wsluser"
+        return $null
     }
     if ($candidate.Length -gt 32) {
         $candidate = $candidate.Substring(0, 32)
     }
     return $candidate
+}
+
+function Get-PreferredWslUserName {
+    if (-not [string]::IsNullOrWhiteSpace($WslUserName)) {
+        $normalized = Normalize-WslUserName -Name $WslUserName
+        if ($normalized) {
+            return $normalized
+        }
+        Write-Warning "Supplied WslUserName '$WslUserName' is invalid after sanitization. Falling back to the Windows username."
+    }
+    $candidate = Normalize-WslUserName -Name $env:USERNAME
+    if ($candidate) {
+        return $candidate
+    }
+    return "wsluser"
 }
 
 function Ensure-WslDefaultUser {
@@ -180,6 +198,33 @@ printf '[user]\ndefault=%s\n' "\$user" >/etc/wsl.conf
         throw "Failed to configure WSL user (exit $($result.ExitCode))."
     }
     wsl.exe --terminate $Name | Out-Null
+}
+
+function Test-NetworkConnectivity {
+    param(
+        [string[]]$Hosts = @('github.com', 'download.docker.com', 'aka.ms'),
+        [int]$Port = 443
+    )
+    Write-Section "Checking network connectivity"
+    $failures = @()
+    foreach ($host in $Hosts) {
+        try {
+            if (Get-Command Test-NetConnection -ErrorAction SilentlyContinue) {
+                $result = Test-NetConnection -ComputerName $host -Port $Port -WarningAction SilentlyContinue
+                if (-not $result.TcpTestSucceeded) {
+                    throw "TCP test failed."
+                }
+            } else {
+                Invoke-WebRequest -Uri "https://$host" -Method Head -TimeoutSec 10 -UseBasicParsing | Out-Null
+            }
+        } catch {
+            Write-Warning "Unable to reach $host:$Port. Ensure firewalls or proxies allow outbound HTTPS. Error: $($_.Exception.Message)"
+            $failures += $host
+        }
+    }
+    if ($failures.Count -gt 0) {
+        Write-Warning "Network connectivity issues detected. Automated downloads may fail until connectivity to the hosts above is restored."
+    }
 }
 
 function Ensure-WslPackages {
@@ -428,6 +473,7 @@ function Prompt-OptionalToken {
 }
 
 Write-Section "Windows bootstrap for AI Dev Platform"
+Test-NetworkConnectivity
 Ensure-Administrator
 Enable-WindowsFeatures
 Ensure-WslDistribution -Name $DistroName
