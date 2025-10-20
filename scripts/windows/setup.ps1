@@ -167,6 +167,21 @@ function Normalize-WslUserName {
     return $candidate
 }
 
+function Ensure-JsonProperty {
+    param(
+        [psobject]$Parent,
+        [string]$Name,
+        $DefaultValue
+    )
+    if (-not $Parent) {
+        throw "JSON parent object cannot be null."
+    }
+    if (-not ($Parent.PSObject.Properties.Name -contains $Name)) {
+        $Parent | Add-Member -MemberType NoteProperty -Name $Name -Value $DefaultValue
+    }
+    return $Parent.PSObject.Properties[$Name].Value
+}
+
 function Get-PreferredWslUserName {
     if (-not [string]::IsNullOrWhiteSpace($WslUserName)) {
         $normalized = Normalize-WslUserName -Name $WslUserName
@@ -354,31 +369,37 @@ function Ensure-DockerDesktop {
     }
 
     $settingsPath = Join-Path $env:APPDATA "Docker\settings.json"
-    $settings = @{}
+    $settings = [pscustomobject]@{}
     if (Test-Path $settingsPath) {
         try {
-            $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json
+            $rawSettings = Get-Content $settingsPath -Raw
+            if (-not [string]::IsNullOrWhiteSpace($rawSettings)) {
+                $settings = $rawSettings | ConvertFrom-Json
+            }
         } catch {
-            $settings = @{}
+            $settings = [pscustomobject]@{}
         }
     }
 
-    if (-not $settings) { $settings = @{} }
+    if (-not $settings) { $settings = [pscustomobject]@{} }
     $settings.wslEngineEnabled = $true
     $settings.autoStart = $true
-    if (-not $settings.ContainsKey("resources")) { $settings.resources = @{} }
-    if (-not $settings.resources.ContainsKey("wslIntegration")) { $settings.resources.wslIntegration = @{} }
-    $enabledDistros = @()
-    if ($settings.resources.wslIntegration.ContainsKey("enabledDistros")) {
-        $enabledDistros = @($settings.resources.wslIntegration.enabledDistros)
+    $resources = Ensure-JsonProperty -Parent $settings -Name "resources" -Default ([pscustomobject]@{})
+    $wslIntegration = Ensure-JsonProperty -Parent $resources -Name "wslIntegration" -Default ([pscustomobject]@{})
+    $enabledDistros = Ensure-JsonProperty -Parent $wslIntegration -Name "enabledDistros" -Default @()
+    if ($enabledDistros -eq $null) {
+        $enabledDistros = @()
+    } elseif ($enabledDistros -isnot [System.Collections.IList]) {
+        $enabledDistros = @($enabledDistros)
+    } else {
+        $enabledDistros = @($enabledDistros | Where-Object { $_ })
     }
     if (-not ($enabledDistros -contains $DistroName)) {
         $enabledDistros += $DistroName
     }
-    $settings.resources.wslIntegration.enabledDistros = $enabledDistros
-    $settings.resources.wslIntegration.defaultDistro = $DistroName
+    $wslIntegration.enabledDistros = $enabledDistros
+    $wslIntegration.defaultDistro = $DistroName
     $settings.wslEngineEnabled = $true
-    $settings = [pscustomobject]$settings
     ($settings | ConvertTo-Json -Depth 10) | Set-Content -Path $settingsPath -Encoding UTF8
 
     Write-Host "Starting Docker Desktop..."
