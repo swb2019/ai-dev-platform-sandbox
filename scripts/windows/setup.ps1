@@ -139,8 +139,11 @@ function Invoke-Wsl {
         $args += @("-u", "root")
     }
     $args += @("--", "bash", "-lc", $prefix)
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     $buffer = & wsl.exe @args 2>&1
     $exitCode = $LASTEXITCODE
+    $ErrorActionPreference = $previousErrorAction
     if ($buffer) {
         $buffer | ForEach-Object { Write-Host $_ }
     }
