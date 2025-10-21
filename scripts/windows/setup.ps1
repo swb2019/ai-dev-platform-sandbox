@@ -141,13 +141,19 @@ function Invoke-Wsl {
     $args += @("--", "bash", "-lc", $prefix)
     $previousErrorAction = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    $buffer = & wsl.exe @args 2>&1
+    $outputLines = New-Object System.Collections.Generic.List[string]
+    & wsl.exe @args 2>&1 | ForEach-Object {
+        $line = [string]$_
+        $outputLines.Add($line)
+        Write-Host $line
+    }
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = $previousErrorAction
-    if ($buffer) {
-        $buffer | ForEach-Object { Write-Host $_ }
+    $consoleOutput = if ($outputLines.Count -gt 0) {
+        ($outputLines -join [Environment]::NewLine).TrimEnd()
+    } else {
+        ""
     }
-    $consoleOutput = ($buffer | Out-String).TrimEnd()
     return [PSCustomObject]@{
         ExitCode = $exitCode
         Output   = $consoleOutput
