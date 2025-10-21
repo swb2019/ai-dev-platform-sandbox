@@ -419,6 +419,11 @@ main() {
   configure_environment "staging" "$STAGING_WAIT_MINUTES" "${STAGING_REVIEWERS[@]}"
   configure_environment "production" "$PRODUCTION_WAIT_MINUTES" "${PRODUCTION_REVIEWERS[@]}"
 
+  local notice_file="$REPO_ROOT/tmp/github-hardening.pending"
+  if [[ -f "$notice_file" ]]; then
+    rm -f "$notice_file"
+  fi
+
   echo "✔ Repository hardening complete for ${FULL_REPO}."
 }
 

@@ -141,6 +141,13 @@ clear_last_failure() {
   fi
 }
 
+clear_step_state() {
+  local key="$1"
+  unset STEP_STATE["done_${key}"]
+  unset STEP_STATE["done_${key}_timestamp"]
+  save_state
+}
+
 print_resume_summary() {
   if [[ -n "${STEP_STATE[last_failure]:-}" ]]; then
     warn "Previous setup attempt failed: ${STEP_STATE[last_failure]}"
@@ -780,6 +787,7 @@ print_pending_guidance() {
     while IFS= read -r line; do
       printf '%s\n' "$line"
     done <"$pending_file"
+    clear_step_state "github_hardening"
   fi
 }
 
