@@ -1,40 +1,78 @@
 # Onboarding Guide
 
-## Prerequisites
+> **Scope:** The automated workflow targets Windows 11 (or Windows 10 22H2+) with WSL2, administrator access, outbound HTTPS to GitHub/Docker/Cursor endpoints, and a GitHub account that has administrator permissions on the target repository. macOS/Linux developers should provision a Windows VM or adapt the scripts manually.
 
-- Node.js 20.x (project is tested with the >=20 <21 range specified in package.json).
-- PNPM 9 (workspace expects pnpm 9.12.0). Enable via corepack if not already configured.
-- Turbo CLI (installed through workspace devDependencies).
-- Playwright system dependencies for Chromium (GitHub Actions installs them automatically; locally run `pnpm --filter @ai-dev-platform/web exec playwright install --with-deps` once).
+## First-time setup checklist
 
-## Initial Setup
+1. **Clone the repository**
 
-1. Install dependencies from the repository root:
-   pnpm install
-2. Confirm the workspace structure:
-   - apps/web – Next.js app (App Router + Tailwind CSS).
-   - packages/tsconfig – Shared TypeScript presets.
-   - packages/eslint-config-custom – Centralized ESLint rules.
-3. On Windows, run the elevated bootstrap helper (installs WSL2, sets the selected distro as default, installs Docker Desktop—with winget, direct-download fallback, or a supplied installer—and executes the consolidated setup). Re-run the helper after completing any prompts; it will resume automatically:
+   ```powershell
+   # Windows (PowerShell)
+   git clone https://github.com/swb2019/ai-dev-platform.git C:\dev\ai-dev-platform
    ```
-   powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1 [-DockerInstallerPath C:\path\to\DockerDesktopInstaller.exe]
+
+   ```bash
+   # macOS / Linux
+   git clone https://github.com/swb2019/ai-dev-platform.git
+   cd ai-dev-platform
    ```
-   Add `-RepoSlug your-user/ai-dev-platform`, `-Branch feature`, or set `DOCKER_DESKTOP_INSTALLER` when operating behind strict proxies.
-4. Run the consolidated setup wrapper if you prefer a single command (already invoked automatically by the Windows helper):
-   ./scripts/setup-all.sh
-   (installs prerequisite packages/tooling, validates Docker, runs onboarding, editor update/verify, infrastructure bootstrap, hardening, and finishes with automated verification: `docker info`, `pnpm lint`, `pnpm type-check`, `pnpm --filter @ai-dev-platform/web test -- --runInBand`. Each verification reruns automatically (Docker setup helper or `pnpm install --frozen-lockfile`, lint auto-fix, Playwright reinstall, etc.) before failing. On WSL the script can trigger the Docker Desktop installer—complete Windows prompts or reboot if asked, enable WSL integration, then rerun until Docker is detected. Use `SKIP_POST_CHECKS=1 ./scripts/setup-all.sh` to bypass verification, `POST_CHECK_MAX_RETRIES=5` to expand recovery attempts, and inspect logs under `tmp/postcheck-*` if an issue persists. The script records progress in `tmp/setup-all.state`, so you can rerun it to resume where it left off; set `RESET_SETUP_STATE=1` if you need to force every step to re-execute.)
-5. Provision the cloud infrastructure manually if you skipped the wrapper:
+
+2. **Run the consolidated setup**
+   - Windows (elevated PowerShell):
+     ```powershell
+     powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1
+     ```
+   - macOS / Linux / inside WSL:
+     ```bash
+     ./scripts/setup-all.sh
+     ```
+     The wrapper installs prerequisites, ensures Docker availability, runs onboarding, infrastructure bootstrap, repository hardening, and finishes with lint/type-check/test verification. It records checkpoints under `tmp/setup-all.state` (or `~/.cache/ai-dev-platform/setup-state` on WSL), so reruns are safe. Use `RESET_SETUP_STATE=1 ./scripts/setup-all.sh` to force every step. Post-check logs are under `tmp/postcheck-*`.
+
+3. **Complete GitHub CLI authentication when prompted**
+   Repository hardening launches `gh auth login --web`, refreshes the token scopes (`repo`, `workflow`, `admin:org`), and confirms the signed-in user has administrator rights on the repository. Stay in the prompt until the browser flow completes. If you cancel or sign in with a non-admin account, rerun `./scripts/github-hardening.sh` later—it will keep prompting until authentication succeeds with an administrator.
+
+4. **Sign into Cursor, Codex, and Claude Code extensions**
+   - Launch Cursor (the Windows bootstrap installs it via winget and offers to open it when setup finishes; macOS/Linux users can download from <https://cursor.sh/>).
+   - Sign into GitHub inside Cursor.
+   - Open the Command Palette and run “Codex: Sign In” followed by “Claude Code: Sign In”.
+
+5. **Verify the workspace**
+
+   ```bash
+   cd ~/ai-dev-platform   # or the repo root on macOS/Linux
+   pnpm --filter @ai-dev-platform/web dev
+   ```
+
+   The setup script already ran lint (`pnpm lint`), type-check (`pnpm type-check`), and unit tests (`pnpm --filter @ai-dev-platform/web test -- --runInBand`). Re-run those before opening a PR.
+
+6. **Provision infrastructure (required for deployments)**
+
+   The Windows helper offers to run these commands automatically. If you skipped that step or need to rerun manually, execute the following inside WSL:
+
+   ```bash
+   gcloud auth login
+   gcloud auth application-default login
    ./scripts/bootstrap-infra.sh
-6. Populate GitHub environment secrets (requires `gh auth login`; defaults are detected from Terraform outputs):
    ./scripts/configure-github-env.sh staging
    ./scripts/configure-github-env.sh prod
-7. Update Cursor and editor extensions to the latest marketplace versions:
+   ```
+
+   Provide your GCP project ID, region, and Terraform state bucket when prompted. Set `INFISICAL_TOKEN` if you use Infisical-managed secrets.
+
+7. **Update editor extensions when versions change**
+
+   ```bash
    ./scripts/update-editor-extensions.sh
    ./scripts/verify-editor-extensions.sh --strict
-   Commit `config/editor-extensions.lock.json` with the captured versions.
-8. Review the shared task manifest and update it with your assignments:
+   ```
+
+   Commit the updated `config/editor-extensions.lock.json`.
+
+8. **Review the shared task manifest**
+   ```bash
    ./scripts/task-context.sh --show
    ./scripts/task-context.sh --set currentGoal "Investigate login UX"
+   ```
 
 ## Development Workflow
 
@@ -60,12 +98,17 @@
 3. For linting, extend @ai-dev-platform/eslint-config-custom (or the Next.js variant).
 4. Run `pnpm install --no-frozen-lockfile` after updating package.json files to refresh the lockfile.
 
-## Helpful Commands
+## Helpful commands
 
-- `pnpm format:check` – Validates formatting without writing changes.
-- `pnpm build --filter @ai-dev-platform/web` – Generates a production build.
-- `pnpm clean` – Removes build artifacts defined in turbo.json.
+- `pnpm --filter @ai-dev-platform/web dev` – Next.js dev server.
+- `pnpm lint` / `pnpm type-check` / `pnpm --filter @ai-dev-platform/web test` – Main quality gates.
+- `pnpm --filter @ai-dev-platform/web test:e2e` – Playwright end-to-end tests (set `E2E_TARGET_URL` when pointing at a deployed environment).
+- `pnpm format:check` – Validate formatting without editing files.
+- `pnpm clean` – Remove build artifacts defined in `turbo.json`.
 
-## Support
+## Need help?
 
-If you encounter setup issues, create a ticket in the engineering backlog with reproduction steps and include outputs from `pnpm env use --global` and `pnpm install`.
+- Re-run `./scripts/setup-all.sh` (it resumes automatically).
+- Inspect `tmp/postcheck-*` for verification failures.
+- Review `~/ai-dev-platform/tmp/github-hardening.pending` if repository hardening paused for manual action.
+- Still blocked? File an engineering ticket with the `tmp` logs, `pnpm env use --global`, and `pnpm --version`.

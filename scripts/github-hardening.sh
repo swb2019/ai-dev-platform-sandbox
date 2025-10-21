@@ -106,6 +106,40 @@ clear_pending_notice() {
   rm -f "$PENDING_NOTICE_FILE"
 }
 
+has_required_scopes() {
+  local scopes_line scope
+  scopes_line="$(gh auth status --hostname github.com 2>&1 | grep -i '^Scopes:' || true)"
+  if [[ -z "$scopes_line" ]]; then
+    return 1
+  fi
+  for scope in repo workflow "admin:org"; do
+    if ! [[ "$scopes_line" =~ (^|[[:space:],])$scope($|[[:space:],]) ]]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+ensure_gh_scopes() {
+  if has_required_scopes; then
+    return 0
+  fi
+  local required="repo,workflow,admin:org"
+  echo "Ensuring GitHub CLI token has scopes: $required" >&2
+  gh auth refresh --hostname github.com --scopes "$required" >/dev/null 2>&1 || return 1
+  has_required_scopes
+}
+
+ensure_repo_admin_access() {
+  local has_admin
+  has_admin=$(gh api "repos/${FULL_REPO}" --jq '.permissions.admin' 2>/dev/null) || return 1
+  [[ "$has_admin" == "true" ]]
+}
+
+record_gh_user() {
+  GH_USER="$(gh api user --jq '.login' 2>/dev/null || echo '')"
+}
+
 
 usage() {
   cat <<USAGE
@@ -205,43 +239,57 @@ to_json_array() {
 FULL_REPO=""
 
 require_gh() {
-  if gh auth status >/dev/null 2>&1; then
-    clear_pending_notice
-    return 0
-  fi
-
   if [[ "${SETUP_SKIP_GITHUB_HARDENING:-0}" == "1" ]]; then
     echo "Skipping GitHub repository hardening because SETUP_SKIP_GITHUB_HARDENING=1." >&2
     write_pending_notice
     return 0
   fi
 
-  echo "GitHub CLI is not authenticated. Launching interactive login..."
-  echo "Follow the prompts; this script will continue once authentication succeeds."
-
   local attempt=1
   while true; do
-    echo "→ Starting gh auth login (attempt ${attempt})"
-    if gh auth login --hostname github.com --git-protocol https --web --scopes "repo,workflow,admin:org"; then
-      if gh auth status >/dev/null 2>&1; then
+    if gh auth status >/dev/null 2>&1; then
+      record_gh_user
+      if ensure_gh_scopes && ensure_repo_admin_access; then
         clear_pending_notice
-        echo "GitHub CLI authentication detected. Continuing repository hardening."
+        if [[ -n "$GH_USER" ]]; then
+          echo "GitHub CLI authenticated as $GH_USER with admin access to ${FULL_REPO}."
+        else
+          echo "GitHub CLI authentication and permissions verified for ${FULL_REPO}."
+        fi
         return 0
       fi
+      echo "GitHub token lacks required scopes or administrator rights; attempting to refresh." >&2
+      ensure_gh_scopes >/dev/null 2>&1 || true
+    else
+      echo "GitHub CLI is not authenticated." >&2
     fi
 
-    echo "GitHub authentication was not detected."
     if [[ ! -t 0 ]]; then
       write_pending_notice
       echo "Cannot complete GitHub authentication in a non-interactive environment." >&2
       exit 1
     fi
 
-    read -r -p "Retry GitHub authentication? [Y/n] " _retry
+    echo "→ Starting gh auth login (attempt ${attempt})"
+    gh auth login --hostname github.com --git-protocol https --web --scopes "repo,workflow,admin:org" || true
+
+    if gh auth status >/dev/null 2>&1; then
+      record_gh_user
+      if ensure_gh_scopes && ensure_repo_admin_access; then
+        clear_pending_notice
+        echo "GitHub CLI authentication detected. Continuing repository hardening."
+        return 0
+      fi
+      echo "Authenticated user does not have the required scopes or admin rights on ${FULL_REPO}." >&2
+    else
+      echo "GitHub authentication was not detected." >&2
+    fi
+
+    read -r -p "Retry GitHub authentication with a different account? [Y/n] " _retry
     _retry="${_retry:-Y}"
     if [[ ! "$_retry" =~ ^[Yy] ]]; then
       write_pending_notice
-      echo "GitHub authentication is required to configure repository hardening." >&2
+      echo "GitHub authentication with admin rights is required to configure repository hardening." >&2
       exit 1
     fi
     attempt=$((attempt + 1))

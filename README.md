@@ -59,85 +59,113 @@ The codebase is organized as a PNPM workspace managed by Turbo.
 
 ## Getting Started
 
-### Step 1: Prepare Windows and clone the repository
+> **Supported platform:** Windows 11 (or Windows 10 22H2+) with administrator access. Native macOS and Linux automation are not provided; use WSL2 on Windows for the full experience.
 
-Install Git (and the supporting shell tools) on Windows if the machine is brand new:
+Before you start, make sure you can provide the following:
 
-- Open an elevated PowerShell window and run:
-  ```powershell
-  winget install --id Git.Git -e --source winget
-  ```
-  Accept any prompts, then restart PowerShell so `git` is on `PATH`. If winget is unavailable, download Git for Windows from https://git-scm.com/download/win and rerun PowerShell.
+- An elevated PowerShell session (Run as Administrator) on Windows.
+- Outbound HTTPS access to `github.com`, `raw.githubusercontent.com`, `download.docker.com`, `aka.ms`, and `cursor.sh`.
+- A GitHub account with **administrator** permissions on the target repository/organization (hardening enforces branch protection and environments).
+- Access to the target Google Cloud project (owner/editor) if you plan to run the infrastructure bootstrap.
 
-After Git is ready, create a working directory at `C:\dev` (if it does not already exist), clone the repository into it (or fast-forward it if it already exists), and switch into the project folder. The following PowerShell block is idempotent—rerunning it will simply update the checkout:
+### Windows 11 quick start
 
-```powershell
-$workspace = 'C:\dev'
-$repoPath = Join-Path $workspace 'ai-dev-platform'
-New-Item -ItemType Directory -Force -Path $workspace | Out-Null
-Set-Location $workspace
+1. **Install Git (one time):**
 
-if (Test-Path (Join-Path $repoPath '.git')) {
-  Set-Location $repoPath
-  git fetch origin
-  git checkout main
-  git pull --ff-only origin main
-} elseif (Test-Path $repoPath) {
-  throw "Path $repoPath already exists but is not a Git repository. Move or remove it, then rerun this block."
-} else {
-  git clone https://github.com/swb2019/ai-dev-platform.git
-  Set-Location $repoPath
-}
-```
-
-If Git cannot be installed (for example, on tightly managed devices), download the repository ZIP from GitHub, extract it under `C:\dev\ai-dev-platform`, and continue inside that folder. To refresh the code later, replace the extracted folder with a fresh ZIP or convert it into a Git clone.
-
-### Step 2: Run the automated setup (Windows)
-
-- **Windows helper**
-
-  ```powershell
-  powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1
-  ```
-
-  Optional flags let you point at a pre-downloaded Docker Desktop installer or seed a specific WSL username:
-
-  ```powershell
-  powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1 -DockerInstallerPath C:\Installers\DockerDesktopInstaller.exe -WslUserName devuser
-  ```
-
-  Launches WSL2 (if needed), sets the default distro, provisions Docker Desktop with WSL integration, clones this repository into Linux, and invokes `./scripts/setup-all.sh`. On brand-new installations it seeds the default Linux user automatically (override with `-WslUserName` if you prefer a specific account), so the run proceeds end-to-end without interactive pauses. Re-running the helper is safe: it resumes from checkpoints stored under `~/.cache/ai-dev-platform/setup-state` inside WSL, fast-forwards the Git checkout, and skips work that already succeeded. Use `-RepoSlug your-user/ai-dev-platform` or `-Branch feature` to target a fork/branch. Provide `-DockerInstallerPath` or set `DOCKER_DESKTOP_INSTALLER` when operating in offline or proxy-restricted environments.
-
-- **Already inside WSL (optional manual run)**
-
-  ```bash
-  SETUP_STATE_DIR="$HOME/.cache/ai-dev-platform/setup-state" ./scripts/setup-all.sh
-  ```
-
-  Run this from the repository root inside WSL if you prefer to execute the consolidated setup manually. The wrapper installs OS-level packages with `apt`, ensures Node.js/pnpm/gh/gcloud/terraform, validates Docker availability (via Docker Desktop integration), runs onboarding, infrastructure bootstrap, repository hardening, and verifies the workspace (`docker info`, `pnpm lint`, `pnpm type-check`, `pnpm --filter @ai-dev-platform/web test`). Each stage records its completion, so rerunning `./scripts/setup-all.sh` is safe: it reuses prior results, retries only the failed step, and writes checkpoints to `~/.cache/ai-dev-platform/setup-state`. Set `RESET_SETUP_STATE=1 ./scripts/setup-all.sh` to force a full rerun. Additional knobs include `SKIP_POST_CHECKS=1` to skip verification, `POST_CHECK_MAX_RETRIES=5` (for example) to allow extra recovery attempts, `DOCKER_DESKTOP_INSTALLER` for offline Docker Desktop installs, and log capture under `tmp/postcheck-*.log`.
-
-### Manual prerequisites (fallback)
-
-The automated script handles prerequisites whenever it has the required permissions, package manager, and network access. Before running it, confirm:
-
-- You are in an elevated PowerShell session (Run as Administrator).
-- The Microsoft App Installer / `winget` is available; install it from the Microsoft Store if it is missing.
-- Outbound HTTPS to key endpoints such as `github.com`, `download.docker.com`, and `aka.ms` is permitted by your firewall or proxy.
-
-If the helper reports that a dependency must be installed manually (common on managed corporate laptops or air-gapped environments), provision the following and re-run `./scripts/setup-all.sh` afterward:
-
-1. **Node.js 20.x and pnpm 9** – enable Corepack and activate pnpm 9.12.0:
-   ```bash
-   corepack enable && corepack prepare pnpm@9.12.0 --activate
-   ```
-2. **Docker** – install Docker Desktop/Engine and ensure the daemon responds to `docker info`.
-3. **Google Cloud CLI (`gcloud`), Terraform CLI, GitHub CLI (`gh`)** – authenticate against the target GCP project and GitHub organization.
-4. **Playwright system dependencies** – install once locally for browser automation:
-   ```bash
-   pnpm --filter @ai-dev-platform/web exec playwright install --with-deps
+   ```powershell
+   winget install --id Git.Git -e --source winget
    ```
 
-After the prerequisites are satisfied, re-run `./scripts/setup-all.sh` to perform onboarding, infrastructure bootstrap, hardening, and verification.
+   Restart PowerShell so `git` is on `PATH`. If winget is unavailable, download Git for Windows from <https://git-scm.com/download/win>.
+
+2. **Clone or refresh the repository (idempotent):**
+
+   ```powershell
+   $workspace = 'C:\dev'
+   $repoPath = Join-Path $workspace 'ai-dev-platform'
+   New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+   Set-Location $workspace
+
+   if (Test-Path (Join-Path $repoPath '.git')) {
+     Set-Location $repoPath
+     git fetch origin
+     git checkout main
+     git pull --ff-only origin main
+   } elseif (Test-Path $repoPath) {
+     throw "Path $repoPath already exists but is not a Git repository. Move or remove it, then rerun this block."
+   } else {
+     git clone https://github.com/swb2019/ai-dev-platform.git
+     Set-Location $repoPath
+   }
+   ```
+
+3. **Run the automated bootstrap (elevated PowerShell):**
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1
+   ```
+
+   What the helper does:
+   - Enables WSL2 features, installs/initializes Ubuntu, and sets it as default.
+   - Installs **Cursor** via winget (or instructs you to install it manually if winget is unavailable).
+   - Installs/updates Docker Desktop, enables WSL integration, and waits for the daemon.
+   - Clones the repository inside WSL and executes `./scripts/setup-all.sh`.
+   - Launches `gh auth login --web`, refreshes the token scopes (`repo`, `workflow`, `admin:org`), and verifies the signed-in user has admin rights on the repository. **Stay in the prompt until the browser flow completes.**
+   - Offers to configure Google Cloud (interactive `gcloud auth login`, `gcloud auth application-default login`, and `./scripts/bootstrap-infra.sh`) and to update GitHub environments automatically. You can autogenerate a hardened `INFISICAL_TOKEN` to store securely if you manage secrets with Infisical.
+   - Offers to launch Cursor at the end so you can immediately sign into Codex and Claude Code.
+
+   You can supply overrides such as `-RepoSlug your-user/ai-dev-platform`, `-Branch feature`, `-WslUserName devuser`, or `-DockerInstallerPath C:\Installers\DockerDesktopInstaller.exe`. When prompted for optional tokens (`GH_TOKEN`, `INFISICAL_TOKEN`), press <kbd>Enter</kbd> to skip unless you have a PAT/Infisical secret ready. Re-running the helper is safe; it resumes from checkpoints stored under `~/.cache/ai-dev-platform/setup-state`.
+
+4. **Sign into Cursor assistants (one time):**
+   - Launch Cursor (installed to `%LOCALAPPDATA%\Programs\Cursor\Cursor.exe`).
+   - Sign into GitHub when prompted.
+   - Press `Ctrl+Shift+P` → “Codex: Sign In” and complete the browser flow (requires accepting the GitHub OAuth prompt).
+   - Repeat for “Claude Code: Sign In” (Claude Code also needs GitHub OAuth approval).
+
+5. **Verify the WSL workspace:**
+   ```bash
+   cd ~/ai-dev-platform
+   pnpm --filter @ai-dev-platform/web dev
+   ```
+   The setup wrapper already ran lint, type-check, and Jest/Playwright smoke tests. Rerun `./scripts/setup-all.sh` anytime; add `RESET_SETUP_STATE=1 ./scripts/setup-all.sh` to force every step.
+
+> **Heads-up:** If the bootstrap reports “Repository hardening still requires manual completion,” follow the instructions in `~/ai-dev-platform/tmp/github-hardening.pending` (usually finishing `gh auth login`) and rerun `./scripts/github-hardening.sh`.
+
+6. **If you skipped the guided cloud setup, run the following inside WSL to configure deployments:**
+   ```bash
+   gcloud auth login
+   gcloud auth application-default login
+   ./scripts/bootstrap-infra.sh
+   ./scripts/configure-github-env.sh staging
+   ./scripts/configure-github-env.sh prod
+   ```
+   When prompted, supply your GCP project ID, region, Terraform state bucket name, and confirm the GitHub environments to update. Set `INFISICAL_TOKEN` before running `configure-github-env.sh` if you rely on Infisical-managed secrets (optional for OSS usage).
+
+### macOS & Linux quick start
+
+1. Install prerequisites: Node.js 20.x, pnpm 9 (`corepack prepare pnpm@9.12.0 --activate`), Docker Engine/Desktop (`docker info` must pass), `gcloud`, Terraform, GitHub CLI (`gh auth login`), and Playwright system deps (`pnpm --filter @ai-dev-platform/web exec playwright install --with-deps`).
+2. Clone the repository:
+   ```bash
+   git clone https://github.com/swb2019/ai-dev-platform.git
+   cd ai-dev-platform
+   ```
+3. Run the consolidated setup:
+   ```bash
+   ./scripts/setup-all.sh
+   ```
+   Stay in the prompt when `gh auth login --web` launches; the script resumes after the browser flow completes.
+4. Install Cursor from <https://cursor.sh/>, sign into GitHub, then sign into Codex and Claude Code via the command palette.
+5. Start developing with `pnpm --filter @ai-dev-platform/web dev`.
+
+### Troubleshooting & recovery
+
+- **Resume setup:** rerun `./scripts/setup-all.sh`; it reads progress from `tmp/setup-all.state` (or `~/.cache/ai-dev-platform/setup-state` on WSL).
+- **Force a clean run:** `RESET_SETUP_STATE=1 ./scripts/setup-all.sh`.
+- **Inspect post-check failures:** review `tmp/postcheck-*.log`.
+- **Replay GitHub hardening:** `./scripts/github-hardening.sh` (the script relaunches `gh auth login --web` until successful).
+- **Provide GitHub admin rights:** the account used during `gh auth login` must have admin permissions on `${OWNER}/${REPO}`; otherwise the hardening step will pause with instructions.
+- **Docker not ready:** On Windows, ensure Docker Desktop is running with WSL integration enabled; rerun the bootstrap helper.
+- **Cursor missing:** Install it manually from <https://cursor.sh/download> and rerun the helper or `./scripts/update-editor-extensions.sh`.
 
 ### Additional scripts
 

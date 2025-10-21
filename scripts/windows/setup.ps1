@@ -60,6 +60,64 @@ function Ensure-Winget {
     throw $msg
 }
 
+function New-RandomSecret {
+    param([int]$Bytes = 48)
+    $buffer = New-Object byte[] $Bytes
+    [System.Security.Cryptography.RandomNumberGenerator]::Fill($buffer)
+    $secret = [Convert]::ToBase64String($buffer)
+    $secret = $secret.TrimEnd('=').Replace('+','-').Replace('/','_')
+    return $secret
+}
+
+function Ensure-Cursor {
+    Write-Section "Ensuring Cursor editor is installed"
+    try {
+        Ensure-Winget
+    } catch {
+        Write-Warning "Unable to verify winget availability ($_). Install Cursor manually from https://cursor.sh/download and rerun this script."
+        return
+    }
+
+    $cursorId = "Cursor.Cursor"
+    $cursorPath = Join-Path $env:LOCALAPPDATA "Programs\Cursor\Cursor.exe"
+    $installed = $false
+    try {
+        $listOutput = winget list --id $cursorId --exact --accept-source-agreements 2>$null
+        if ($LASTEXITCODE -eq 0 -and $listOutput -match [regex]::Escape($cursorId)) {
+            $installed = $true
+        }
+    } catch {
+        Write-Warning "winget list failed to detect Cursor ($_). Continuing with installation attempt."
+    }
+
+    if ($installed -and (Test-Path $cursorPath)) {
+        Write-Host "Cursor already installed at $cursorPath."
+        return
+    }
+
+    Write-Host "Installing Cursor editor via winget..."
+    $arguments = @(
+        "install", "-e", "--id", $cursorId,
+        "--accept-package-agreements", "--accept-source-agreements"
+    )
+    $proc = Start-Process -FilePath "winget" -ArgumentList $arguments -NoNewWindow -Wait -PassThru
+    switch ($proc.ExitCode) {
+        0 {
+            if (Test-Path $cursorPath) {
+                Write-Host "Cursor installation completed successfully at $cursorPath."
+            } else {
+                Write-Warning "Cursor installer reported success but $cursorPath was not found. Install Cursor manually from https://cursor.sh/download and rerun this script."
+            }
+        }
+        3010 {
+            Write-Warning "Cursor installation signaled a reboot requirement. Restart Windows to finish installation, then rerun this script if needed."
+        }
+        default {
+            Write-Warning "Cursor installer exited with code $($proc.ExitCode). Install Cursor manually from https://cursor.sh/download if the editor is still missing."
+        }
+    }
+}
+
 function Enable-WindowsFeatures {
     Write-Section "Enabling Windows features for WSL2"
     $features = @(
@@ -232,7 +290,14 @@ printf '[user]\ndefault=%s\n' "\$user" >/etc/wsl.conf
 
 function Test-NetworkConnectivity {
     param(
-        [string[]]$Hosts = @('github.com', 'download.docker.com', 'aka.ms'),
+        [string[]]$Hosts = @(
+            'github.com',
+            'raw.githubusercontent.com',
+            'objects.githubusercontent.com',
+            'download.docker.com',
+            'aka.ms',
+            'cursor.sh'
+        ),
         [int]$Port = 443
     )
     Write-Section "Checking network connectivity"
@@ -448,6 +513,126 @@ git pull --ff-only origin $Branch || true
     }
 }
 
+function Ensure-CloudBootstrap {
+    param([string]$RepoSlug)
+
+    Write-Section "Cloud account provisioning"
+    $proceedInput = Read-Host "Configure Google Cloud authentication and GitHub environments now? [Y/n]"
+    if ($proceedInput -match '^[Nn]') {
+        return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $false }
+    }
+
+    $completed = $false
+
+    $defaultProject = if ([string]::IsNullOrWhiteSpace($env:GCP_PROJECT_ID)) { ($RepoSlug -split '/')[1] } else { $env:GCP_PROJECT_ID }
+    $projectId = Read-Host "Enter GCP project ID [$defaultProject]"
+    if ([string]::IsNullOrWhiteSpace($projectId)) { $projectId = $defaultProject }
+
+    $defaultRegion = if ([string]::IsNullOrWhiteSpace($env:GCP_REGION)) { 'us-central1' } else { $env:GCP_REGION }
+    $region = Read-Host "Enter default GCP region [$defaultRegion]"
+    if ([string]::IsNullOrWhiteSpace($region)) { $region = $defaultRegion }
+
+    $defaultBucket = "$projectId-tf-state"
+    $bucket = Read-Host "Enter Terraform state bucket name [$defaultBucket]"
+    if ([string]::IsNullOrWhiteSpace($bucket)) { $bucket = $defaultBucket }
+
+    $defaultRepoSlug = $RepoSlug
+    $repoTarget = Read-Host "Enter GitHub org/repo for hardening [$defaultRepoSlug]"
+    if ([string]::IsNullOrWhiteSpace($repoTarget)) { $repoTarget = $defaultRepoSlug }
+
+    $previousInfisical = [Environment]::GetEnvironmentVariable('INFISICAL_TOKEN', 'Process')
+    $previousWslenv = [Environment]::GetEnvironmentVariable('WSLENV', 'Process')
+    $generatedInfisical = $false
+
+    $generateInfInput = Read-Host "Generate a strong Infisical token now? [y/N]"
+    if ($generateInfInput -match '^[Yy]') {
+        $infToken = New-RandomSecret 48
+        Write-Section "Generated Infisical token"
+        Write-Host "INFISICAL_TOKEN: $infToken" -ForegroundColor Yellow
+        Write-Host "Store this token immediately in your password manager; it will not be persisted by the script." -ForegroundColor Yellow
+        [Environment]::SetEnvironmentVariable('INFISICAL_TOKEN', $infToken, 'Process')
+        $wslenvParts = @()
+        if (-not [string]::IsNullOrWhiteSpace($previousWslenv)) {
+            $wslenvParts = $previousWslenv -split ';' | Where-Object { $_ -ne '' }
+        }
+        if ($wslenvParts -notcontains 'INFISICAL_TOKEN/p') {
+            $wslenvParts += 'INFISICAL_TOKEN/p'
+        }
+        [Environment]::SetEnvironmentVariable('WSLENV', ($wslenvParts -join ';'), 'Process')
+        $generatedInfisical = $true
+    }
+
+    Write-Section "Google Cloud CLI authentication"
+    Write-Host "A browser window will launch for gcloud login. Complete the prompt and return here." -ForegroundColor Yellow
+    $loginResult = Invoke-Wsl -Command "gcloud auth login --launch-browser"
+    if ($loginResult.ExitCode -ne 0) {
+        Write-Warning "gcloud auth login failed (exit $($loginResult.ExitCode)). Complete authentication manually and rerun this step later."
+        goto Cleanup
+    }
+
+    $setProject = Invoke-Wsl -Command "gcloud config set project $projectId"
+    if ($setProject.ExitCode -ne 0) {
+        Write-Warning "Unable to set default project in gcloud (exit $($setProject.ExitCode))."
+    }
+
+    $adcResult = Invoke-Wsl -Command "gcloud auth application-default login --launch-browser"
+    if ($adcResult.ExitCode -ne 0) {
+        Write-Warning "gcloud application-default login failed (exit $($adcResult.ExitCode)). Continue after configuring ADC manually."
+        goto Cleanup
+    }
+
+    Write-Section "Terraform bootstrap"
+    Write-Host "The following defaults will be prefilled. Press Enter to accept them when prompted." -ForegroundColor Yellow
+    $bootstrapCommands = @(
+        "export GCP_PROJECT_ID='$projectId'",
+        "export GCP_REGION='$region'",
+        "export GITHUB_ORG_REPO='$repoTarget'",
+        "export TERRAFORM_STATE_BUCKET='$bucket'",
+        "export STAGING_KSA_NAMESPACE='web'",
+        "export STAGING_KSA_NAME='web-sa'",
+        "export PRODUCTION_KSA_NAMESPACE='web'",
+        "export PRODUCTION_KSA_NAME='web-sa'",
+        "cd \$HOME/ai-dev-platform",
+        "./scripts/bootstrap-infra.sh"
+    )
+    $bootstrapResult = Invoke-Wsl -Command ($bootstrapCommands -join '; ')
+    if ($bootstrapResult.ExitCode -ne 0) {
+        Write-Warning "Infrastructure bootstrap exited with $($bootstrapResult.ExitCode). Review the output above and rerun './scripts/bootstrap-infra.sh' inside WSL if necessary."
+        goto Cleanup
+    }
+
+    Write-Section "GitHub environment configuration"
+    $configureCommands = @(
+        "cd \$HOME/ai-dev-platform",
+        "./scripts/configure-github-env.sh staging",
+        "./scripts/configure-github-env.sh prod"
+    )
+    $configureResult = Invoke-Wsl -Command ($configureCommands -join '; ')
+    if ($configureResult.ExitCode -ne 0) {
+        Write-Warning "configure-github-env.sh exited with $($configureResult.ExitCode). Rerun the script inside WSL after addressing the issue."
+        goto Cleanup
+    }
+
+    Write-Host "Cloud authentication and environment configuration completed." -ForegroundColor Green
+    $completed = $true
+    goto Cleanup
+
+:Cleanup
+    if ($generatedInfisical) {
+        if ([string]::IsNullOrWhiteSpace($previousInfisical)) {
+            [Environment]::SetEnvironmentVariable('INFISICAL_TOKEN', $null, 'Process')
+        } else {
+            [Environment]::SetEnvironmentVariable('INFISICAL_TOKEN', $previousInfisical, 'Process')
+        }
+        [Environment]::SetEnvironmentVariable('WSLENV', $previousWslenv, 'Process')
+    }
+
+    if ($completed) {
+        return [PSCustomObject]@{ Completed = $true; GeneratedInfisical = $generatedInfisical }
+    }
+    return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
+}
+
 function Get-WslEnvPrefix {
     $lines = @()
     if ($env:GH_TOKEN) {
@@ -487,6 +672,52 @@ function Run-SetupAll {
     throw "./scripts/setup-all.sh failed inside WSL (exit $($result.ExitCode)). Open the WSL shell and rerun the script manually for details."
 }
 
+function Show-PostBootstrapChecklist {
+    param(
+        [bool]$CloudBootstrapCompleted,
+        [bool]$GeneratedInfisical
+    )
+    Write-Section "Next steps"
+
+    $cursorPath = Join-Path $env:LOCALAPPDATA "Programs\Cursor\Cursor.exe"
+    if (Test-Path $cursorPath) {
+        Write-Host "1. Launch Cursor and complete AI assistant sign-in:" -ForegroundColor Yellow
+        Write-Host "   - GitHub account (prompted on first launch)." -ForegroundColor Yellow
+        Write-Host "   - Command Palette → 'Codex: Sign In'." -ForegroundColor Yellow
+        Write-Host "   - Command Palette → 'Claude Code: Sign In'." -ForegroundColor Yellow
+
+        try {
+            $launchPrompt = Read-Host "Open Cursor now to start sign-in? [Y/n]"
+            if ([string]::IsNullOrWhiteSpace($launchPrompt) -or $launchPrompt -match '^[Yy]') {
+                Start-Process -FilePath $cursorPath | Out-Null
+            }
+        } catch {
+            Write-Warning "Unable to launch Cursor automatically ($_)"
+        }
+    } else {
+        Write-Warning "Cursor executable not detected. Install it from https://cursor.sh/download, then sign into Codex and Claude Code."
+    }
+
+    Write-Host "2. In WSL, run 'cd ~/ai-dev-platform && pnpm --filter @ai-dev-platform/web dev' to start coding." -ForegroundColor Yellow
+
+    if ($CloudBootstrapCompleted) {
+        Write-Host "3. Google Cloud authentication, Terraform bootstrap, and GitHub environments are configured." -ForegroundColor Green
+        if ($GeneratedInfisical) {
+            Write-Host "   Remember to store the generated INFISICAL_TOKEN securely." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "3. To configure cloud infrastructure later, run inside WSL:" -ForegroundColor Yellow
+        Write-Host "   - gcloud auth login" -ForegroundColor Yellow
+        Write-Host "   - gcloud auth application-default login" -ForegroundColor Yellow
+        Write-Host "   - ./scripts/bootstrap-infra.sh" -ForegroundColor Yellow
+        Write-Host "   - ./scripts/configure-github-env.sh staging" -ForegroundColor Yellow
+        Write-Host "   - ./scripts/configure-github-env.sh prod" -ForegroundColor Yellow
+        Write-Host "   (Generate an INFISICAL token if you rely on Infisical secrets.)" -ForegroundColor Yellow
+    }
+
+    Write-Host "4. Rerun './scripts/setup-all.sh' anytime to resume or verify the environment." -ForegroundColor Yellow
+}
+
 function Prompt-OptionalToken {
     param(
         [string]$EnvName,
@@ -521,6 +752,7 @@ Ensure-WslDistribution -Name $DistroName
 Ensure-WslDefault -Name $DistroName
 Ensure-WslInitialized -Name $DistroName
 Ensure-WslPackages
+Ensure-Cursor
 
 if (-not $SkipDockerInstall) {
     Ensure-DockerDesktop
@@ -535,6 +767,9 @@ if (-not $SkipSetupAll) {
     if ($ghTokenAdded) { Remove-Item -Path Env:GH_TOKEN -ErrorAction SilentlyContinue }
     if ($infTokenAdded) { Remove-Item -Path Env:INFISICAL_TOKEN -ErrorAction SilentlyContinue }
 }
+
+$cloudBootstrapContext = Ensure-CloudBootstrap -RepoSlug $RepoSlug
+Show-PostBootstrapChecklist -CloudBootstrapCompleted:$cloudBootstrapContext.Completed -GeneratedInfisical:$cloudBootstrapContext.GeneratedInfisical
 
 Write-Section "Bootstrap complete"
 Write-Host "Open WSL (Ubuntu) and run 'cd ~/ai-dev-platform && pnpm --filter @ai-dev-platform/web dev' to start developing." -ForegroundColor Green
