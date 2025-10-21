@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   security-scans:
-    name: Security Scans
+    name: CI / Security Scans
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -37,7 +37,7 @@ jobs:
         run: semgrep ci --config semgrep.yml
 
   quality-gates:
-    name: Quality Gates
+    name: CI / Quality Gates
     runs-on: ubuntu-latest
     needs: security-scans
     steps:
@@ -74,7 +74,7 @@ jobs:
         run: pnpm build
 
   supply_chain:
-    name: Supply Chain
+    name: CI / Supply Chain
     runs-on: ubuntu-latest
     needs: quality-gates
     permissions:

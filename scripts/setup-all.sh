@@ -13,12 +13,15 @@ HARDENING_SCRIPT="$ROOT_DIR/scripts/github-hardening.sh"
 
 STATE_DIR="${SETUP_STATE_DIR:-$ROOT_DIR/tmp}"
 STATE_DIR="${STATE_DIR%/}"
+if [[ -z "$STATE_DIR" ]]; then
+  STATE_DIR="$ROOT_DIR/tmp"
+fi
 STATE_FILE="$STATE_DIR/setup-all.state"
 declare -A STEP_STATE=()
 
 ensure_state_dir() {
   if [[ -n "$STATE_DIR" && ! -d "$STATE_DIR" ]]; then
-    mkdir -p "$STATE_DIR"
+    mkdir -p -- "$STATE_DIR"
   fi
 }
 
@@ -53,7 +56,7 @@ compute_checksum() {
 }
 
 save_state() {
-  mkdir -p "$STATE_DIR"
+  mkdir -p -- "$STATE_DIR"
   if ((${#STEP_STATE[@]} == 0)); then
     rm -f "$STATE_FILE" "$STATE_FILE.bak"
     return
@@ -187,7 +190,7 @@ run_step() {
 if [[ "${RESET_SETUP_STATE:-0}" == "1" ]]; then
   rm -f "$STATE_FILE"
 fi
-mkdir -p "$STATE_DIR"
+mkdir -p -- "$STATE_DIR"
 load_state
 print_resume_summary
 
