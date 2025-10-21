@@ -186,10 +186,18 @@ to_json_array() {
 FULL_REPO=""
 
 require_gh() {
-  if ! gh auth status >/dev/null 2>&1; then
-    echo "gh CLI is not authenticated. Run 'gh auth login' with a token that has admin access to ${OWNER}/${REPO}." >&2
-    exit 1
+  if gh auth status >/dev/null 2>&1; then
+    return 0
   fi
+
+  if [[ ( ! -t 0 || "${WINDOWS_AUTOMATED_SETUP:-0}" == "1" || "${SETUP_SKIP_GITHUB_HARDENING:-0}" == "1" ) && "${GITHUB_HARDENING_ASSUME_DEFAULTS:-0}" != "1" ]]; then
+    echo "Skipping GitHub repository hardening: gh CLI is not authenticated."
+    echo "Run './scripts/github-hardening.sh' after completing 'gh auth login' with admin access to ${OWNER}/${REPO}."
+    exit 0
+  fi
+
+  echo "gh CLI is not authenticated. Run 'gh auth login' with a token that has admin access to ${OWNER}/${REPO}." >&2
+  exit 1
 }
 
 enable_security_features() {
