@@ -994,6 +994,13 @@ load_state
 
 BOOTSTRAP_COMPLETED="${BOOTSTRAP_COMPLETED:-no}"
 
+if [[ ! -t 0 && "${INFRA_BOOTSTRAP_ASSUME_DEFAULTS:-0}" != "1" ]]; then
+  heading "Infrastructure bootstrap"
+  echo "Skipping interactive infrastructure bootstrap (no TTY detected)."
+  echo "Run scripts/bootstrap-infra.sh from an interactive shell when you are ready to provision cloud resources."
+  exit 0
+fi
+
 if [[ "${BOOTSTRAP_COMPLETED:-}" == "yes" ]]; then
   if ! prompt_yes "Infrastructure bootstrap already completed. Re-run anyway?" "N"; then
     echo "Bootstrap already complete. Nothing to do."
