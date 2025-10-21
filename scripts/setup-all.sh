@@ -773,5 +773,17 @@ run_step "Repository hardening" "$HARDENING_SCRIPT" "github_hardening"
 run_post_checks
 clear_last_failure
 
+print_pending_guidance() {
+  local pending_file="$ROOT_DIR/tmp/github-hardening.pending"
+  if [[ -f "$pending_file" ]]; then
+    warn "Repository hardening still requires manual completion."
+    while IFS= read -r line; do
+      printf '%s\n' "$line"
+    done <"$pending_file"
+  fi
+}
+
+print_pending_guidance
+
 log "All setup steps completed."
 log "You can now run 'pnpm --filter @ai-dev-platform/web dev' or open your editor to start developing."

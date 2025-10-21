@@ -193,6 +193,18 @@ require_gh() {
   if [[ ( ! -t 0 || "${WINDOWS_AUTOMATED_SETUP:-0}" == "1" || "${SETUP_SKIP_GITHUB_HARDENING:-0}" == "1" ) && "${GITHUB_HARDENING_ASSUME_DEFAULTS:-0}" != "1" ]]; then
     echo "Skipping GitHub repository hardening: gh CLI is not authenticated."
     echo "Run './scripts/github-hardening.sh' after completing 'gh auth login' with admin access to ${OWNER}/${REPO}."
+    local notice_file="$REPO_ROOT/tmp/github-hardening.pending"
+    mkdir -p "$(dirname "$notice_file")"
+    cat >"$notice_file" <<EOF
+GitHub repository hardening skipped because GitHub CLI is not authenticated.
+
+Next steps:
+  1. Open a WSL shell and run: gh auth login --web --scopes "repo,workflow,admin:org"
+     (or rerun setup with a personal access token when prompted).
+  2. After authentication completes, run: ./scripts/github-hardening.sh
+
+This ensures branch protection, environments, and security settings are enforced for ${OWNER}/${REPO}.
+EOF
     exit 0
   fi
 
