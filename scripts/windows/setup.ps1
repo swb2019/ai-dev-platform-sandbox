@@ -471,6 +471,7 @@ function Run-SetupAll {
     if ($envPrefix) {
         $commands += $envPrefix
     }
+    $commands += 'export WINDOWS_AUTOMATED_SETUP=1'
     $commands += 'if [ -z "${SETUP_STATE_DIR:-}" ]; then SETUP_STATE_DIR="$HOME/.cache/ai-dev-platform/setup-state"; fi'
     $commands += 'export SETUP_STATE_DIR'
     $commands += 'cd $HOME/ai-dev-platform'
