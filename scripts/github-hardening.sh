@@ -86,6 +86,25 @@ heading() {
 }
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+PENDING_NOTICE_FILE="$REPO_ROOT/tmp/github-hardening.pending"
+
+write_pending_notice() {
+  mkdir -p "$(dirname "$PENDING_NOTICE_FILE")"
+  cat >"$PENDING_NOTICE_FILE" <<EOF
+GitHub repository hardening requires GitHub CLI authentication.
+
+Next steps for ${OWNER}/${REPO}:
+  1. Run: gh auth login --hostname github.com --git-protocol https --web --scopes "repo,workflow,admin:org"
+     and complete the browser flow when prompted.
+  2. Re-run ./scripts/github-hardening.sh once authentication completes.
+
+This step configures branch protections, environments, and security features for the repository.
+EOF
+}
+
+clear_pending_notice() {
+  rm -f "$PENDING_NOTICE_FILE"
+}
 
 
 usage() {
@@ -187,29 +206,46 @@ FULL_REPO=""
 
 require_gh() {
   if gh auth status >/dev/null 2>&1; then
+    clear_pending_notice
     return 0
   fi
 
-  if [[ ( ! -t 0 || "${WINDOWS_AUTOMATED_SETUP:-0}" == "1" || "${SETUP_SKIP_GITHUB_HARDENING:-0}" == "1" ) && "${GITHUB_HARDENING_ASSUME_DEFAULTS:-0}" != "1" ]]; then
-    echo "Skipping GitHub repository hardening: gh CLI is not authenticated."
-    echo "Run './scripts/github-hardening.sh' after completing 'gh auth login' with admin access to ${OWNER}/${REPO}."
-    local notice_file="$REPO_ROOT/tmp/github-hardening.pending"
-    mkdir -p "$(dirname "$notice_file")"
-    cat >"$notice_file" <<EOF
-GitHub repository hardening skipped because GitHub CLI is not authenticated.
-
-Next steps:
-  1. Open a WSL shell and run: gh auth login --web --scopes "repo,workflow,admin:org"
-     (or rerun setup with a personal access token when prompted).
-  2. After authentication completes, run: ./scripts/github-hardening.sh
-
-This ensures branch protection, environments, and security settings are enforced for ${OWNER}/${REPO}.
-EOF
-    exit 0
+  if [[ "${SETUP_SKIP_GITHUB_HARDENING:-0}" == "1" ]]; then
+    echo "Skipping GitHub repository hardening because SETUP_SKIP_GITHUB_HARDENING=1." >&2
+    write_pending_notice
+    return 0
   fi
 
-  echo "gh CLI is not authenticated. Run 'gh auth login' with a token that has admin access to ${OWNER}/${REPO}." >&2
-  exit 1
+  echo "GitHub CLI is not authenticated. Launching interactive login..."
+  echo "Follow the prompts; this script will continue once authentication succeeds."
+
+  local attempt=1
+  while true; do
+    echo "→ Starting gh auth login (attempt ${attempt})"
+    if gh auth login --hostname github.com --git-protocol https --web --scopes "repo,workflow,admin:org"; then
+      if gh auth status >/dev/null 2>&1; then
+        clear_pending_notice
+        echo "GitHub CLI authentication detected. Continuing repository hardening."
+        return 0
+      fi
+    fi
+
+    echo "GitHub authentication was not detected."
+    if [[ ! -t 0 ]]; then
+      write_pending_notice
+      echo "Cannot complete GitHub authentication in a non-interactive environment." >&2
+      exit 1
+    fi
+
+    read -r -p "Retry GitHub authentication? [Y/n] " _retry
+    _retry="${_retry:-Y}"
+    if [[ ! "$_retry" =~ ^[Yy] ]]; then
+      write_pending_notice
+      echo "GitHub authentication is required to configure repository hardening." >&2
+      exit 1
+    fi
+    attempt=$((attempt + 1))
+  done
 }
 
 enable_security_features() {
@@ -419,11 +455,7 @@ main() {
   configure_environment "staging" "$STAGING_WAIT_MINUTES" "${STAGING_REVIEWERS[@]}"
   configure_environment "production" "$PRODUCTION_WAIT_MINUTES" "${PRODUCTION_REVIEWERS[@]}"
 
-  local notice_file="$REPO_ROOT/tmp/github-hardening.pending"
-  if [[ -f "$notice_file" ]]; then
-    rm -f "$notice_file"
-  fi
-
+  clear_pending_notice
   echo "✔ Repository hardening complete for ${FULL_REPO}."
 }
 

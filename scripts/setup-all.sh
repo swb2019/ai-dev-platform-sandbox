@@ -143,6 +143,9 @@ clear_last_failure() {
 
 clear_step_state() {
   local key="$1"
+  if [[ -z "$key" ]]; then
+    return
+  fi
   unset STEP_STATE["done_${key}"]
   unset STEP_STATE["done_${key}_timestamp"]
   save_state
