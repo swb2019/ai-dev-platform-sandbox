@@ -540,6 +540,19 @@ function Ensure-CloudBootstrap {
     $repoTarget = Read-Host "Enter GitHub org/repo for hardening [$defaultRepoSlug]"
     if ([string]::IsNullOrWhiteSpace($repoTarget)) { $repoTarget = $defaultRepoSlug }
 
+    Write-Section "Verifying GitHub repository access"
+    $repoCheck = Invoke-Wsl -Command "gh api repos/$repoTarget --silent"
+    if ($repoCheck.ExitCode -ne 0) {
+        Write-Warning "Repository '$repoTarget' does not exist or you do not have access. Create it (or fork the AI Dev Platform repo) and ensure you have admin rights, then rerun this step."
+        goto Cleanup
+    }
+
+    $repoAdminCheck = Invoke-Wsl -Command "gh api repos/$repoTarget --jq .permissions.admin"
+    if ($repoAdminCheck.ExitCode -ne 0 -or $repoAdminCheck.Output.Trim().ToLower() -ne 'true') {
+        Write-Warning "GitHub user lacks admin permissions on '$repoTarget'. Grant admin rights or choose a repository you administer, then rerun this step."
+        goto Cleanup
+    }
+
     $previousInfisical = [Environment]::GetEnvironmentVariable('INFISICAL_TOKEN', 'Process')
     $previousWslenv = [Environment]::GetEnvironmentVariable('WSLENV', 'Process')
     $generatedInfisical = $false
@@ -570,9 +583,21 @@ function Ensure-CloudBootstrap {
         goto Cleanup
     }
 
+    $describeProject = Invoke-Wsl -Command "gcloud projects describe $projectId"
+    if ($describeProject.ExitCode -ne 0) {
+        Write-Warning "Project '$projectId' was not found or you do not have access. Create the project at https://console.cloud.google.com/projectcreate and rerun this step."
+        goto Cleanup
+    }
+
     $setProject = Invoke-Wsl -Command "gcloud config set project $projectId"
     if ($setProject.ExitCode -ne 0) {
         Write-Warning "Unable to set default project in gcloud (exit $($setProject.ExitCode))."
+    }
+
+    $billingStatus = Invoke-Wsl -Command "gcloud beta billing projects describe $projectId --format=value(billingEnabled)"
+    if ($billingStatus.ExitCode -ne 0 -or $billingStatus.Output.Trim().ToLower() -ne 'true') {
+        Write-Warning "Billing is not enabled for project '$projectId'. Enable billing in the Google Cloud console and rerun this step."
+        goto Cleanup
     }
 
     $adcResult = Invoke-Wsl -Command "gcloud auth application-default login --launch-browser"

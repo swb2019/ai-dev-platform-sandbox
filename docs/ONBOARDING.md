@@ -1,6 +1,22 @@
 # Onboarding Guide
 
-> **Scope:** The automated workflow targets Windows 11 (or Windows 10 22H2+) with WSL2, administrator access, outbound HTTPS to GitHub/Docker/Cursor endpoints, and a GitHub account that has administrator permissions on the target repository. macOS/Linux developers should provision a Windows VM or adapt the scripts manually.
+> **Scope:** The automated workflow targets Windows 11 (or Windows 10 22H2+) with WSL2, administrator access, outbound HTTPS to GitHub/Docker/Cursor endpoints, and a GitHub account that has administrator permissions on the target repository. You must already have a Google Cloud project with billing enabled and a GitHub repository/org where you have admin rights. macOS/Linux developers should provision a Windows VM or adapt the scripts manually.
+
+### Before you run the bootstrap
+
+1. **Create a Google Cloud project with billing**
+   - Visit <https://console.cloud.google.com/projectcreate>, create a project, and note its project ID.
+   - Link a billing account (Billing → Link a billing account)
+   - Optional but helpful: enable the Cloud Resource Manager API.
+
+2. **Create or fork a GitHub repository**
+   - Fork `swb2019/ai-dev-platform` or create an empty repository in your organization.
+   - Confirm your GitHub account has "Admin" permissions on that repo.
+
+3. **(Optional) Authenticate the GitHub CLI ahead of time**
+   ```bash
+   gh auth login --hostname github.com --git-protocol https --web --scopes "repo,workflow,admin:org"
+   ```
 
 ## First-time setup checklist
 

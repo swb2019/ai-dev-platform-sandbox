@@ -67,6 +67,27 @@ Before you start, make sure you can provide the following:
 - Outbound HTTPS access to `github.com`, `raw.githubusercontent.com`, `download.docker.com`, `aka.ms`, and `cursor.sh`.
 - A GitHub account with **administrator** permissions on the target repository/organization (hardening enforces branch protection and environments).
 - Access to the target Google Cloud project (owner/editor) if you plan to run the infrastructure bootstrap.
+- A Google Cloud project **with billing enabled** (create one at <https://console.cloud.google.com/projectcreate> and attach a billing account before running the bootstrap).
+- A GitHub repository/org where you have admin rights (fork this repo or create a new empty repository under your organization).
+
+### Prepare required accounts (one time)
+
+1. **Google Cloud project with billing**
+   - Visit <https://console.cloud.google.com/projectcreate> and create a project (note the project ID).
+   - Enable billing for the project (Billing → Link a billing account).
+   - Optional: Pre-enable the "Cloud Resource Manager" API so the bootstrap can enumerate permissions.
+
+2. **GitHub repository with admin permissions**
+   - Fork `swb2019/ai-dev-platform` or create a new repository inside your organization.
+   - Ensure your GitHub account has the "Admin" role on that repository (Settings → Collaborators & teams).
+   - If using SSO/enforced security, authorize the repository so `gh auth login` can access it.
+
+3. **CLI sign-in (optional but recommended before running the helper)**
+   ```bash
+   # Inside WSL (or any shell with gh installed)
+   gh auth login --hostname github.com --git-protocol https --web --scopes "repo,workflow,admin:org"
+   ```
+   The Windows helper will prompt for authentication if you skip this step, but pre-authenticating can save time.
 
 ### Windows 11 quick start
 
