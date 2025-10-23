@@ -33,7 +33,15 @@
    cd ai-dev-platform
    ```
 
-2. **Run the consolidated setup**
+2. **Sync your fork (optional but recommended)**
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\sync-sandbox.ps1
+   ```
+
+   This signs in the GitHub CLI, creates the fork if it does not exist, and force-updates your `main` with the latest upstream commits.
+
+3. **Run the consolidated setup**
    - Windows (elevated PowerShell):
      ```powershell
      powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1
@@ -44,15 +52,15 @@
      ```
      The wrapper installs prerequisites, ensures Docker availability, runs onboarding, infrastructure bootstrap, repository hardening, and finishes with lint/type-check/test verification. It records checkpoints under `tmp/setup-all.state` (or `~/.cache/ai-dev-platform/setup-state` on WSL), so reruns are safe. Use `RESET_SETUP_STATE=1 ./scripts/setup-all.sh` to force every step. Post-check logs are under `tmp/postcheck-*`.
 
-3. **Complete GitHub CLI authentication when prompted**
-   Repository hardening launches `gh auth login --web`, refreshes the token scopes (`repo`, `workflow`, `admin:org`), and confirms the signed-in user has administrator rights on the repository. Stay in the prompt until the browser flow completes. If you cancel or sign in with a non-admin account, rerun `./scripts/github-hardening.sh` later—it will keep prompting until authentication succeeds with an administrator.
+4. **Complete GitHub CLI authentication when prompted**
+   Repository hardening launches `gh auth login --web` (Windows and WSL), refreshes the token scopes (`repo`, `workflow`, `admin:org`), and confirms the signed-in user has administrator rights on the repository. Stay in the prompt until the browser flow completes. If you cancel or sign in with a non-admin account, rerun `./scripts/github-hardening.sh` later—it will keep prompting until authentication succeeds with an administrator.
 
-4. **Sign into Cursor, Codex, and Claude Code extensions**
+5. **Sign into Cursor, Codex, and Claude Code extensions**
    - Launch Cursor (the Windows bootstrap installs it via winget and offers to open it when setup finishes; macOS/Linux users can download from <https://cursor.sh/>).
    - Sign into GitHub inside Cursor.
    - Open the Command Palette and run “Codex: Sign In” followed by “Claude Code: Sign In”.
 
-5. **Verify the workspace**
+6. **Verify the workspace**
 
    ```bash
    cd ~/ai-dev-platform   # or the repo root on macOS/Linux
@@ -61,7 +69,7 @@
 
    The setup script already ran lint (`pnpm lint`), type-check (`pnpm type-check`), and unit tests (`pnpm --filter @ai-dev-platform/web test -- --runInBand`). Re-run those before opening a PR.
 
-6. **Provision infrastructure (required for deployments)**
+7. **Provision infrastructure (required for deployments)**
 
    The Windows helper offers to run these commands automatically. If you skipped that step or need to rerun manually, execute the following inside WSL:
 
@@ -75,7 +83,7 @@
 
    Provide your GCP project ID, region, and Terraform state bucket when prompted. Set `INFISICAL_TOKEN` if you use Infisical-managed secrets.
 
-7. **Update editor extensions when versions change**
+8. **Update editor extensions when versions change**
 
    ```bash
    ./scripts/update-editor-extensions.sh
@@ -84,7 +92,7 @@
 
    Commit the updated `config/editor-extensions.lock.json`.
 
-8. **Review the shared task manifest**
+9. **Review the shared task manifest**
    ```bash
    ./scripts/task-context.sh --show
    ./scripts/task-context.sh --set currentGoal "Investigate login UX"

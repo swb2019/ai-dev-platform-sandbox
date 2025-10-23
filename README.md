@@ -120,7 +120,15 @@ Before you start, make sure you can provide the following:
    }
    ```
 
-3. **Run the automated bootstrap (elevated PowerShell):**
+3. **(Optional) Sync your sandbox fork with upstream**
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\sync-sandbox.ps1
+   ```
+
+   This script authenticates the GitHub CLI if necessary, ensures your fork exists, mirrors the latest upstream commits, and sets the correct remotes.
+
+4. **Run the automated bootstrap (elevated PowerShell):**
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\scripts\windows\setup.ps1
@@ -131,19 +139,20 @@ Before you start, make sure you can provide the following:
    - Installs **Cursor** via winget (or instructs you to install it manually if winget is unavailable).
    - Installs/updates Docker Desktop, enables WSL integration, and waits for the daemon.
    - Clones the repository inside WSL and executes `./scripts/setup-all.sh`.
-   - Launches `gh auth login --web`, refreshes the token scopes (`repo`, `workflow`, `admin:org`), and verifies the signed-in user has admin rights on the repository. **Stay in the prompt until the browser flow completes.**
+   - Launches `gh auth login --web` inside both Windows and WSL contexts (if needed), refreshes the token scopes (`repo`, `workflow`, `admin:org`), and verifies the signed-in user has admin rights on the repository. **Stay in each prompt until the browser flow completes.**
+   - Automatically creates the GitHub repository (via `gh repo create`) if it does not yet exist or is empty, then continues.
    - Offers to configure Google Cloud (interactive `gcloud auth login`, `gcloud auth application-default login`, and `./scripts/bootstrap-infra.sh`) and to update GitHub environments automatically. You can autogenerate a hardened `INFISICAL_TOKEN` to store securely if you manage secrets with Infisical.
    - Offers to launch Cursor at the end so you can immediately sign into Codex and Claude Code.
 
    You can supply overrides such as `-RepoSlug your-user/ai-dev-platform`, `-Branch feature`, `-WslUserName devuser`, or `-DockerInstallerPath C:\Installers\DockerDesktopInstaller.exe`. When prompted for optional tokens (`GH_TOKEN`, `INFISICAL_TOKEN`), press <kbd>Enter</kbd> to skip unless you have a PAT/Infisical secret ready. Re-running the helper is safe; it resumes from checkpoints stored under `~/.cache/ai-dev-platform/setup-state`.
 
-4. **Sign into Cursor assistants (one time):**
+5. **Sign into Cursor assistants (one time):**
    - Launch Cursor (installed to `%LOCALAPPDATA%\Programs\Cursor\Cursor.exe`).
    - Sign into GitHub when prompted.
    - Press `Ctrl+Shift+P` → “Codex: Sign In” and complete the browser flow (requires accepting the GitHub OAuth prompt).
    - Repeat for “Claude Code: Sign In” (Claude Code also needs GitHub OAuth approval).
 
-5. **Verify the WSL workspace:**
+6. **Verify the WSL workspace:**
    ```bash
    cd ~/ai-dev-platform
    pnpm --filter @ai-dev-platform/web dev
@@ -152,7 +161,7 @@ Before you start, make sure you can provide the following:
 
 > **Heads-up:** If the bootstrap reports “Repository hardening still requires manual completion,” follow the instructions in `~/ai-dev-platform/tmp/github-hardening.pending` (usually finishing `gh auth login`) and rerun `./scripts/github-hardening.sh`.
 
-6. **If you skipped the guided cloud setup, run the following inside WSL to configure deployments:**
+7. **If you skipped the guided cloud setup, run the following inside WSL to configure deployments:**
    ```bash
    gcloud auth login
    gcloud auth application-default login
