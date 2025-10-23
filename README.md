@@ -333,6 +333,8 @@ Detailed references are available in the `docs/` directory:
 - [Agent Risk Register](docs/agents/RISK_REGISTER.md)
 - [Agent Prompt Template](docs/agents/PROMPT_TEMPLATE.md)
 - [Agent Quality Checklist](docs/agents/QUALITY_CHECKLIST.md)
+- [Dedicated Repository Checks](docs/agents/DEDICATED_REPO_CHECKS.md)
+- [Remote Automation Setup](docs/REMOTE_AUTOMATION_SETUP.md)
 
 Refer to these guides for environment-specific configuration, operational runbooks, and security guardrails.
 
