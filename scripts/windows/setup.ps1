@@ -549,11 +549,20 @@ function Ensure-CloudBootstrap {
 
     try {
         Write-Section "Verifying GitHub repository access"
-        $null = Invoke-Wsl -Command "cat <<'EOF' >/tmp/open-in-windows.sh
+        $relayScript = @'
+cat <<'EOFSCRIPT' >/tmp/open-in-windows.sh
 #!/bin/bash
-powershell.exe -Command Start-Process \"\$1\"
-EOF
-chmod +x /tmp/open-in-windows.sh"
+url="$1"
+if [ -z "$url" ]; then
+  read -r url
+fi
+if [ -n "$url" ]; then
+  powershell.exe -Command "Start-Process \"${url}\""
+fi
+EOFSCRIPT
+chmod +x /tmp/open-in-windows.sh
+'@
+        Invoke-Wsl -Command $relayScript *> $null
         $authReady = $false
         for ($attempt = 1; $attempt -le 5 -and -not $authReady; $attempt++) {
             $authStatus = Invoke-Wsl -Command "GH_BROWSER=/tmp/open-in-windows.sh gh auth status --hostname github.com"
