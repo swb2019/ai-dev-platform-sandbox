@@ -69,17 +69,61 @@ function New-RandomSecret {
     return $secret
 }
 
+function Install-CursorViaDownload {
+    param([string]$ExpectedPath)
+
+    $downloadUrl = "https://github.com/cursor/cursor/releases/latest/download/CursorSetup.exe"
+    $tempPath = Join-Path ([System.IO.Path]::GetTempPath()) "CursorSetup.exe"
+    Write-Host "Attempting Cursor installation via direct download fallback..." -ForegroundColor Yellow
+    Write-Host "Downloading Cursor installer from $downloadUrl"
+    try {
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $tempPath -UseBasicParsing -ErrorAction Stop
+    } catch {
+        Write-Warning "Failed to download Cursor installer automatically ($($_.Exception.Message)). Install Cursor manually from https://cursor.sh/download and rerun this script."
+        return $false
+    }
+
+    try {
+        $arguments = @("/S")
+        Write-Host "Running Cursor installer in silent mode..."
+        $proc = Start-Process -FilePath $tempPath -ArgumentList $arguments -Wait -PassThru
+        if ($proc.ExitCode -ne 0) {
+            Write-Warning "Cursor installer exited with code $($proc.ExitCode)."
+        }
+    } catch {
+        Write-Warning "Cursor installer execution failed ($($_.Exception.Message))."
+    } finally {
+        try {
+            Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
+        } catch {
+            # ignore cleanup errors
+        }
+    }
+
+    if (Test-Path $ExpectedPath) {
+        Write-Host "Cursor installation completed successfully at $ExpectedPath."
+        return $true
+    }
+
+    Write-Warning "Cursor installer did not create $ExpectedPath. Install Cursor manually from https://cursor.sh/download and rerun this script."
+    return $false
+}
+
 function Ensure-Cursor {
     Write-Section "Ensuring Cursor editor is installed"
+    $cursorPath = Join-Path $env:LOCALAPPDATA "Programs\Cursor\Cursor.exe"
     try {
         Ensure-Winget
     } catch {
-        Write-Warning "Unable to verify winget availability ($_). Install Cursor manually from https://cursor.sh/download and rerun this script."
+        Write-Warning "Unable to verify winget availability ($_). Attempting direct-download fallback."
+        $fallbackInstalled = Install-CursorViaDownload -ExpectedPath $cursorPath
+        if (-not $fallbackInstalled) {
+            Write-Warning "Install Cursor manually from https://cursor.sh/download and rerun this script."
+        }
         return
     }
 
     $cursorId = "Cursor.Cursor"
-    $cursorPath = Join-Path $env:LOCALAPPDATA "Programs\Cursor\Cursor.exe"
     $installed = $false
     try {
         $listOutput = winget list --id $cursorId --exact --accept-source-agreements 2>$null
@@ -105,16 +149,23 @@ function Ensure-Cursor {
         0 {
             if (Test-Path $cursorPath) {
                 Write-Host "Cursor installation completed successfully at $cursorPath."
+                return
             } else {
-                Write-Warning "Cursor installer reported success but $cursorPath was not found. Install Cursor manually from https://cursor.sh/download and rerun this script."
+                Write-Warning "Cursor installer reported success but $cursorPath was not found. Attempting direct-download fallback."
             }
         }
         3010 {
             Write-Warning "Cursor installation signaled a reboot requirement. Restart Windows to finish installation, then rerun this script if needed."
+            return
         }
         default {
-            Write-Warning "Cursor installer exited with code $($proc.ExitCode). Install Cursor manually from https://cursor.sh/download if the editor is still missing."
+            Write-Warning "Cursor installer exited with code $($proc.ExitCode). Attempting direct-download fallback."
         }
+    }
+
+    $fallbackInstalled = Install-CursorViaDownload -ExpectedPath $cursorPath
+    if (-not $fallbackInstalled) {
+        Write-Warning "Cursor installation could not be automated. Install Cursor manually from https://cursor.sh/download and rerun this script."
     }
 }
 
@@ -556,9 +607,19 @@ url="$1"
 if [ -z "$url" ]; then
   read -r url
 fi
-if [ -n "$url" ]; then
-  powershell.exe -Command "Start-Process \"${url}\""
+if [ -z "$url" ]; then
+  exit 0
 fi
+
+escape_pwsh() {
+  printf "%s" "$1" | sed "s/'/''/g"
+}
+
+escaped="$(escape_pwsh "$url")"
+powershell.exe -NoProfile -Command "Start-Process '$escaped'" >/dev/null 2>&1 && exit 0
+/mnt/c/Windows/System32/cmd.exe /c start "" "$url" >/dev/null 2>&1 && exit 0
+printf 'Open this URL manually: %s\n' "$url" >&2
+exit 0
 EOFSCRIPT
 chmod +x /tmp/open-in-windows.sh
 '@
@@ -651,7 +712,7 @@ chmod +x /tmp/open-in-windows.sh
 
         Write-Section "Google Cloud CLI authentication"
         Write-Host "Launching browser for gcloud login." -ForegroundColor Yellow
-        $loginResult = Invoke-Wsl -Command "BROWSER='powershell.exe -Command Start-Process' gcloud auth login --launch-browser"
+        $loginResult = Invoke-Wsl -Command "BROWSER=/tmp/open-in-windows.sh gcloud auth login --launch-browser"
         if ($loginResult.ExitCode -ne 0) {
             Write-Warning "gcloud auth login failed (exit $($loginResult.ExitCode)). Complete authentication manually and rerun."
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
@@ -664,13 +725,13 @@ chmod +x /tmp/open-in-windows.sh
         }
 
         Invoke-Wsl -Command "gcloud config set project $projectId" *> $null
-        $billingStatus = Invoke-Wsl -Command "gcloud beta billing projects describe $projectId --format=value(billingEnabled)"
+        $billingStatus = Invoke-Wsl -Command "gcloud beta billing projects describe $projectId --format='value(billingEnabled)'"
         if ($billingStatus.ExitCode -ne 0 -or $billingStatus.Output.Trim().ToLower() -ne 'true') {
             Write-Warning "Billing is not enabled for project '$projectId'. Enable billing in Google Cloud Console and rerun."
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
         }
 
-        $adcResult = Invoke-Wsl -Command "BROWSER='powershell.exe -Command Start-Process' gcloud auth application-default login --launch-browser"
+        $adcResult = Invoke-Wsl -Command "BROWSER=/tmp/open-in-windows.sh gcloud auth application-default login --launch-browser"
         if ($adcResult.ExitCode -ne 0) {
             Write-Warning "gcloud application-default login failed; configure ADC manually and rerun."
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }

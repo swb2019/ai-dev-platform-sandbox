@@ -136,7 +136,7 @@ Before you start, make sure you can provide the following:
 
    What the helper does:
    - Enables WSL2 features, installs/initializes Ubuntu, and sets it as default.
-   - Installs **Cursor** via winget (or instructs you to install it manually if winget is unavailable).
+   - Installs **Cursor** via winget (and falls back to downloading the latest Windows installer from GitHub releases if winget cannot find it).
    - Installs/updates Docker Desktop, enables WSL integration, and waits for the daemon.
    - Clones the repository inside WSL and executes `./scripts/setup-all.sh`.
    - Launches `gh auth login --web` inside both Windows and WSL contexts (if needed), refreshes the token scopes (`repo`, `workflow`, `admin:org`), and verifies the signed-in user has admin rights on the repository. The helper relays the OAuth URL to your Windows browser automatically; if it does not open, copy the printed URL manually and paste it into your browser.
@@ -195,7 +195,7 @@ Before you start, make sure you can provide the following:
 - **Replay GitHub hardening:** `./scripts/github-hardening.sh` (the script relaunches `gh auth login --web` until successful).
 - **Provide GitHub admin rights:** the account used during `gh auth login` must have admin permissions on `${OWNER}/${REPO}`; otherwise the hardening step will pause with instructions.
 - **Docker not ready:** On Windows, ensure Docker Desktop is running with WSL integration enabled; rerun the bootstrap helper.
-- **Cursor missing:** Install it manually from <https://cursor.sh/download> and rerun the helper or `./scripts/update-editor-extensions.sh`.
+- **Cursor missing:** Re-run the Windows bootstrap; it now downloads the latest installer from GitHub if winget cannot find it. As a fallback you can install manually from <https://cursor.sh/download> and rerun the helper or `./scripts/update-editor-extensions.sh`.
 
 ### Additional scripts
 
