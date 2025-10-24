@@ -38,7 +38,7 @@ function Ensure-RepositoryExists {
         return
     }
     Write-Host "GitHub repository '$SandboxRepo' not found. Creating it now..." -ForegroundColor Yellow
-    gh repo create $SandboxRepo --private --confirm --disable-wiki --disable-issues
+    gh repo create $SandboxRepo --private --source $RepoDir --push --confirm --disable-wiki --disable-issues
     if ($LASTEXITCODE -ne 0) {
         throw "Automatic repository creation failed. Create the repo manually and rerun."
     }

@@ -549,10 +549,10 @@ function Ensure-CloudBootstrap {
 
     try {
         Write-Section "Verifying GitHub repository access"
-        $authStatus = Invoke-Wsl -Command "gh auth status --hostname github.com"
+        $authStatus = Invoke-Wsl -Command "GH_BROWSER='powershell.exe -Command Start-Process' gh auth status --hostname github.com"
         if ($authStatus.ExitCode -ne 0) {
             Write-Host "Authenticating GitHub CLI inside WSL..." -ForegroundColor Yellow
-            $authResult = Invoke-Wsl -Command "gh auth login --hostname github.com --git-protocol https --web --scopes 'repo,workflow,admin:org'"
+            $authResult = Invoke-Wsl -Command "GH_BROWSER='powershell.exe -Command Start-Process' gh auth login --hostname github.com --git-protocol https --web --scopes 'repo,workflow,admin:org'"
             if ($authResult.ExitCode -ne 0) {
                 Write-Warning "Unable to authenticate GitHub CLI inside WSL."
                 return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
@@ -562,9 +562,9 @@ function Ensure-CloudBootstrap {
         $repoView = Invoke-Wsl -Command "gh repo view $repoTarget --json name"
         if ($repoView.ExitCode -ne 0) {
             Write-Host "Repository '$repoTarget' not found. Creating it now..." -ForegroundColor Yellow
+            Invoke-Wsl -Command "cd \$HOME/ai-dev-platform && git remote remove origin >/dev/null 2>&1 || true" *> $null
             $createCommands = @(
                 "cd \$HOME/ai-dev-platform",
-                "git remote remove origin >/dev/null 2>&1 || true",
                 "gh repo create $repoTarget --private --source \$HOME/ai-dev-platform --push --confirm --disable-wiki --disable-issues"
             )
             $createResult = Invoke-Wsl -Command ($createCommands -join '; ')
@@ -601,7 +601,7 @@ function Ensure-CloudBootstrap {
 
         Write-Section "Google Cloud CLI authentication"
         Write-Host "Launching browser for gcloud login." -ForegroundColor Yellow
-        $loginResult = Invoke-Wsl -Command "gcloud auth login --launch-browser"
+        $loginResult = Invoke-Wsl -Command "BROWSER='powershell.exe -Command Start-Process' gcloud auth login --launch-browser"
         if ($loginResult.ExitCode -ne 0) {
             Write-Warning "gcloud auth login failed (exit $($loginResult.ExitCode)). Complete authentication manually and rerun."
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
@@ -620,7 +620,7 @@ function Ensure-CloudBootstrap {
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
         }
 
-        $adcResult = Invoke-Wsl -Command "gcloud auth application-default login --launch-browser"
+        $adcResult = Invoke-Wsl -Command "BROWSER='powershell.exe -Command Start-Process' gcloud auth application-default login --launch-browser"
         if ($adcResult.ExitCode -ne 0) {
             Write-Warning "gcloud application-default login failed; configure ADC manually and rerun."
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
