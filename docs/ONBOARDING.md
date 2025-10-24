@@ -53,7 +53,7 @@
      The wrapper installs prerequisites, ensures Docker availability, runs onboarding, infrastructure bootstrap, repository hardening, and finishes with lint/type-check/test verification. It records checkpoints under `tmp/setup-all.state` (or `~/.cache/ai-dev-platform/setup-state` on WSL), so reruns are safe. Use `RESET_SETUP_STATE=1 ./scripts/setup-all.sh` to force every step. Post-check logs are under `tmp/postcheck-*`.
 
 4. **Complete GitHub CLI authentication when prompted**
-   Repository hardening launches `gh auth login --web` (Windows and WSL), refreshes the token scopes (`repo`, `workflow`, `admin:org`), and confirms the signed-in user has administrator rights on the repository. Stay in the prompt until the browser flow completes. If you cancel or sign in with a non-admin account, rerun `./scripts/github-hardening.sh` later—it will keep prompting until authentication succeeds with an administrator.
+   Repository hardening launches `gh auth login --web` (Windows and WSL), refreshes the token scopes (`repo`, `workflow`, `admin:org`), and confirms the signed-in user has administrator rights on the repository. The helper relays each OAuth link to your Windows browser automatically; if it does not open, copy the printed URL manually. If you cancel or sign in with a non-admin account, rerun `./scripts/github-hardening.sh` later—it will keep prompting until authentication succeeds with an administrator.
 
 5. **Sign into Cursor, Codex, and Claude Code extensions**
    - Launch Cursor (the Windows bootstrap installs it via winget and offers to open it when setup finishes; macOS/Linux users can download from <https://cursor.sh/>).
@@ -81,7 +81,7 @@
    ./scripts/configure-github-env.sh prod
    ```
 
-   Provide your GCP project ID, region, and Terraform state bucket when prompted. Set `INFISICAL_TOKEN` if you use Infisical-managed secrets.
+   Provide your GCP project ID, region, and Terraform state bucket when prompted. Set `INFISICAL_TOKEN` if you use Infisical-managed secrets; the bootstrap now offers to paste an existing token and only generates one if you explicitly choose to.
 
 8. **Update editor extensions when versions change**
 

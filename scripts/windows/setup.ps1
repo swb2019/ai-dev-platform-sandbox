@@ -549,14 +549,43 @@ function Ensure-CloudBootstrap {
 
     try {
         Write-Section "Verifying GitHub repository access"
-        $authStatus = Invoke-Wsl -Command "GH_BROWSER='powershell.exe -Command Start-Process' gh auth status --hostname github.com"
-        if ($authStatus.ExitCode -ne 0) {
-            Write-Host "Authenticating GitHub CLI inside WSL..." -ForegroundColor Yellow
-            $authResult = Invoke-Wsl -Command "GH_BROWSER='powershell.exe -Command Start-Process' gh auth login --hostname github.com --git-protocol https --web --scopes 'repo,workflow,admin:org'"
-            if ($authResult.ExitCode -ne 0) {
-                Write-Warning "Unable to authenticate GitHub CLI inside WSL."
+        $relayScript = @"
+cat <<'EOF' >/tmp/open-in-windows.sh
+#!/bin/bash
+powershell.exe -Command Start-Process "$1"
+EOF
+chmod +x /tmp/open-in-windows.sh
+"@
+        Invoke-Wsl -Command $relayScript *> $null
+
+        $authReady = $false
+        for ($attempt = 1; $attempt -le 5 -and -not $authReady; $attempt++) {
+            $authStatus = Invoke-Wsl -Command "GH_BROWSER=/tmp/open-in-windows.sh gh auth status --hostname github.com"
+            if ($authStatus.ExitCode -eq 0) {
+                $authReady = $true
+                break
+            }
+
+            Write-Host "Authenticating GitHub CLI inside WSL (attempt $attempt of 5)..." -ForegroundColor Yellow
+            $authResult = Invoke-Wsl -Command "GH_BROWSER=/tmp/open-in-windows.sh gh auth login --hostname github.com --git-protocol https --web --scopes 'repo,workflow,admin:org'"
+            if ($authResult.ExitCode -eq 0) {
+                $authReady = $true
+                break
+            }
+
+            $authOutput = ($authResult.Output | Out-String)
+            if ($authOutput -match 'slow_down') {
+                Write-Host "GitHub requested more time between login attempts. Retrying in 15 seconds..." -ForegroundColor Yellow
+                Start-Sleep -Seconds 15
+            } else {
+                Write-Warning "Unable to authenticate GitHub CLI inside WSL. Run 'wsl -d $DistroName -- gh auth login --web' manually, then rerun this step."
                 return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
             }
+        }
+
+        if (-not $authReady) {
+            Write-Warning "GitHub CLI inside WSL could not be authenticated after multiple attempts."
+            return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
         }
 
         $repoView = Invoke-Wsl -Command "gh repo view $repoTarget --json name"
@@ -581,13 +610,30 @@ function Ensure-CloudBootstrap {
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
         }
 
-        $generateInfInput = Read-Host "Generate a strong INFISICAL_TOKEN now? [y/N]"
-        if ($generateInfInput -match '^[Yy]') {
-            $infToken = New-RandomSecret 48
-            Write-Section "Generated Infisical token"
-            Write-Host "INFISICAL_TOKEN: $infToken" -ForegroundColor Yellow
-            Write-Host "Store this token immediately in your password manager." -ForegroundColor Yellow
-            [Environment]::SetEnvironmentVariable('INFISICAL_TOKEN', $infToken, 'Process')
+        $existingInf = [Environment]::GetEnvironmentVariable('INFISICAL_TOKEN', 'Process')
+        if (-not [string]::IsNullOrWhiteSpace($existingInf)) {
+            Write-Host "Reusing INFISICAL_TOKEN already present in the environment." -ForegroundColor Yellow
+        } else {
+            Write-Section "Infisical token"
+            Write-Host "An INFISICAL_TOKEN is required for secret provisioning." -ForegroundColor Yellow
+            $manualToken = Read-Host "Enter an existing INFISICAL_TOKEN (leave blank to generate one)"
+            if (-not [string]::IsNullOrWhiteSpace($manualToken)) {
+                [Environment]::SetEnvironmentVariable('INFISICAL_TOKEN', $manualToken, 'Process')
+            } else {
+                Write-Host "Generating a new INFISICAL_TOKEN can incur Infisical subscription costs on paid plans." -ForegroundColor Yellow
+                $confirm = Read-Host "Generate a strong INFISICAL_TOKEN automatically? [y/N]"
+                if ($confirm -match '^[Yy]') {
+                    $infToken = New-RandomSecret 48
+                    Write-Section "Generated Infisical token"
+                    Write-Host "INFISICAL_TOKEN: $infToken" -ForegroundColor Yellow
+                    Write-Host "Store this token immediately in your password manager." -ForegroundColor Yellow
+                    [Environment]::SetEnvironmentVariable('INFISICAL_TOKEN', $infToken, 'Process')
+                    $generatedInfisical = $true
+                } else {
+                    Write-Warning "Skipping Infisical token setup. Set INFISICAL_TOKEN and rerun cloud provisioning when ready."
+                    return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $false }
+                }
+            }
             $wslenvParts = @()
             if (-not [string]::IsNullOrWhiteSpace($previousWslenv)) {
                 $wslenvParts = $previousWslenv -split ';' | Where-Object { $_ -ne '' }
@@ -596,7 +642,6 @@ function Ensure-CloudBootstrap {
                 $wslenvParts += 'INFISICAL_TOKEN/p'
             }
             [Environment]::SetEnvironmentVariable('WSLENV', ($wslenvParts -join ';'), 'Process')
-            $generatedInfisical = $true
         }
 
         Write-Section "Google Cloud CLI authentication"
