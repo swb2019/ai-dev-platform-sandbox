@@ -15,6 +15,7 @@ $ProgressPreference = "SilentlyContinue"
 $script:CursorInstallerContextReady = $false
 $script:CursorInstallerCacheDir = $null
 $script:CursorInstallerLogFile = $null
+$script:CursorInstallerLogAdvertised = $false
 if (-not $DockerInstallerPath -and $env:DOCKER_DESKTOP_INSTALLER) {
     $DockerInstallerPath = $env:DOCKER_DESKTOP_INSTALLER
 }
@@ -138,6 +139,17 @@ function Write-CursorLog {
     }
 }
 
+function Ensure-CursorLogAdvertised {
+    if ($script:CursorInstallerLogAdvertised) {
+        return
+    }
+    if ($script:CursorInstallerLogFile) {
+        Write-Host ("Cursor installer diagnostics will be written to: {0}" -f $script:CursorInstallerLogFile) -ForegroundColor DarkCyan
+        Write-CursorLog "Cursor installer log path advertised to user."
+        $script:CursorInstallerLogAdvertised = $true
+    }
+}
+
 function Get-CursorInstallerCachePath {
     param([string]$Version)
     Initialize-CursorInstallerContext
@@ -211,6 +223,7 @@ function Confirm-CursorInstallation {
     $version = Get-CursorInstalledVersion -Path $installPath
     $displayVersion = if (-not [string]::IsNullOrWhiteSpace($version)) { $version } else { "unknown" }
     Write-CursorLog ("Detected Cursor installation at {0} (version: {1})" -f $installPath, $displayVersion)
+    Write-Host ("Cursor detected at {0} (version: {1})." -f $installPath, $displayVersion)
     if ($ExpectedPath -and (-not (Test-Path $ExpectedPath))) {
         Write-Warning "Cursor installer completed, but '$ExpectedPath' was not created. Verify the installation manually."
         return $false
@@ -262,22 +275,101 @@ function Install-CursorFromPath {
         [string]$ExpectedVersion,
         [string]$ExpectedInstallPath
     )
+    $resolved = Resolve-CursorInstallerPath -Path $Path
+    if (-not $resolved) {
+        return $false
+    }
+    $cleanupPath = $resolved.Cleanup
+    $installer = $resolved.Path
+    Write-CursorLog ("Attempting Cursor installation from resolved path {0}" -f $installer)
+    $result = $false
+    try {
+        if (-not (Test-CursorInstallerSignature -Path $installer)) {
+            return $false
+        }
+        try {
+            $hash = Get-FileHash -Path $installer -Algorithm SHA256
+            Write-CursorLog ("Installer SHA256 hash: {0}" -f $hash.Hash)
+        } catch {
+            Write-CursorLog ("Unable to hash Cursor installer {0}: {1}" -f $installer, $_.Exception.Message)
+        }
+        $result = Invoke-CursorInstaller -InstallerPath $installer -ExpectedVersion $ExpectedVersion -ExpectedPath $ExpectedInstallPath
+        return $result
+    } finally {
+        if ($cleanupPath -and (Test-Path $cleanupPath)) {
+            try {
+                Remove-Item $cleanupPath -Recurse -Force -ErrorAction SilentlyContinue
+                Write-CursorLog ("Cleaned up temporary installer artifacts at {0}" -f $cleanupPath)
+            } catch {
+                Write-CursorLog ("Failed to clean temporary installer folder {0}: {1}" -f $cleanupPath, $_.Exception.Message)
+            }
+        }
+    }
+}
+
+function Resolve-CursorInstallerPath {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        Write-Warning "Cursor installer path was empty."
+        return $null
+    }
     if (-not (Test-Path $Path)) {
         Write-Warning "Cursor installer path '$Path' not found."
         Write-CursorLog ("Provided Cursor installer path not found: {0}" -f $Path)
-        return $false
+        return $null
     }
-    Write-CursorLog ("Attempting Cursor installation from provided path {0}" -f $Path)
-    if (-not (Test-CursorInstallerSignature -Path $Path)) {
-        return $false
+    if (Test-Path $Path -PathType Leaf) {
+        return [pscustomobject]@{ Path = (Get-Item -LiteralPath $Path).FullName; Cleanup = $null }
     }
-    try {
-        $hash = Get-FileHash -Path $Path -Algorithm SHA256
-        Write-CursorLog ("Installer SHA256 hash: {0}" -f $hash.Hash)
-    } catch {
-        Write-CursorLog ("Unable to hash Cursor installer {0}: {1}" -f $Path, $_.Exception.Message)
+    $resolvedFolder = $null
+    $cleanupFolder = $null
+    if (Test-Path $Path -PathType Container) {
+        $resolvedFolder = (Get-Item -LiteralPath $Path).FullName
     }
-    return Invoke-CursorInstaller -InstallerPath $Path -ExpectedVersion $ExpectedVersion -ExpectedPath $ExpectedInstallPath
+
+    $extension = [IO.Path]::GetExtension($Path)
+    if ($extension -and $extension.ToLowerInvariant() -eq ".zip") {
+        $tempDir = Join-Path ([IO.Path]::GetTempPath()) ("cursor-installer-" + [guid]::NewGuid().ToString("N"))
+        try {
+            Expand-Archive -LiteralPath $Path -DestinationPath $tempDir -Force
+            Write-CursorLog ("Expanded Cursor installer archive {0} to {1}" -f $Path, $tempDir)
+            $resolvedFolder = $tempDir
+            $cleanupFolder = $tempDir
+        } catch {
+            Write-Warning "Failed to extract Cursor installer archive '$Path' ($($_.Exception.Message))."
+            Write-CursorLog ("Failed to expand archive {0}: {1}" -f $Path, $_.Exception.Message)
+            if (Test-Path $tempDir) {
+                try { Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue } catch { }
+            }
+            return $null
+        }
+    }
+
+    if (-not $resolvedFolder) {
+        Write-Warning "Cursor installer path '$Path' did not resolve to a file."
+        Write-CursorLog ("Unable to resolve Cursor installer path: {0}" -f $Path)
+        return $null
+    }
+
+    $candidates = Get-ChildItem -LiteralPath $resolvedFolder -Recurse -File | Where-Object {
+        $_.Extension -match '\.exe$' -and $_.Name -match 'Cursor'
+    } | Sort-Object LastWriteTime -Descending
+
+    if (-not $candidates -or $candidates.Count -eq 0) {
+        Write-Warning "Cursor installer path '$Path' did not contain a Cursor installer executable."
+        Write-CursorLog ("No installer executables found under {0}" -f $resolvedFolder)
+        if ($cleanupFolder) {
+            try { Remove-Item $cleanupFolder -Recurse -Force -ErrorAction SilentlyContinue } catch { }
+        }
+        return $null
+    }
+
+    $selected = $candidates | Select-Object -First 1
+    Write-CursorLog ("Resolved Cursor installer candidate {0} (LastWriteTime: {1})" -f $selected.FullName, $selected.LastWriteTime)
+    return [pscustomobject]@{
+        Path    = $selected.FullName
+        Cleanup = $cleanupFolder
+    }
 }
 
 function Get-CursorInstallPath {
@@ -485,6 +577,7 @@ function Install-CursorViaDownload {
 function Ensure-Cursor {
     Write-Section "Ensuring Cursor editor is installed"
     Initialize-CursorInstallerContext
+    Ensure-CursorLogAdvertised
     Write-CursorLog "Starting Cursor installation verification."
     $cursorPath = Join-Path $env:LOCALAPPDATA "Programs\Cursor\Cursor.exe"
     $existingPath = Get-CursorInstallPath
