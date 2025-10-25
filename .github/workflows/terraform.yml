@@ -32,6 +32,43 @@ jobs:
     steps:
       - run: echo "Terraform applies run only on main; current ref ${{ github.ref }}."
 
+  provision-check:
+    name: Provision Guard
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.evaluate.outputs.ready }}
+      reason: ${{ steps.evaluate.outputs.reason }}
+    steps:
+      - id: evaluate
+        run: |
+          missing=()
+          note() { printf '::notice::%s\n' "$1"; }
+          check_secret() {
+            local key="$1"
+            local value="$2"
+            if [ -z "$value" ]; then
+              missing+=("$key")
+            fi
+          }
+          check_secret "TERRAFORM_SERVICE_ACCOUNT" "${{ secrets.TERRAFORM_SERVICE_ACCOUNT }}"
+          check_secret "WORKLOAD_IDENTITY_PROVIDER" "${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}"
+          check_secret "GCP_PROJECT_ID" "${{ secrets.GCP_PROJECT_ID }}"
+          check_secret "GCP_REGION" "${{ secrets.GCP_REGION }}"
+          check_secret "RUNTIME_KSA_NAMESPACE" "${{ secrets.RUNTIME_KSA_NAMESPACE }}"
+          check_secret "RUNTIME_KSA_NAME" "${{ secrets.RUNTIME_KSA_NAME }}"
+          check_secret "BA_ATTESTORS" "${{ secrets.BA_ATTESTORS }}"
+          if [ "${#missing[@]}" -gt 0 ]; then
+            reason="Missing secrets: ${missing[*]}"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=${reason//$'\n'/ }" >> "$GITHUB_OUTPUT"
+            note "Terraform apply skipped – ${reason}"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "reason=ready" >> "$GITHUB_OUTPUT"
+            note "Terraform apply prerequisites satisfied."
+          fi
+
   plan:
     name: Plan (staging)
     if: ${{ github.event_name == 'pull_request' && secrets.TERRAFORM_SERVICE_ACCOUNT != '' }}
@@ -132,7 +169,8 @@ jobs:
 
   apply:
     name: Apply
-    if: ${{ github.event_name == 'push' && ((github.ref == 'refs/heads/main' && vars.STAGING_INFRA_ENABLED == 'true') || (startsWith(github.ref, 'refs/tags/v') && vars.PRODUCTION_INFRA_ENABLED == 'true')) }}
+    needs: provision-check
+    if: ${{ github.event_name == 'push' && needs.provision-check.outputs.ready == 'true' && ((github.ref == 'refs/heads/main' && vars.STAGING_INFRA_ENABLED == 'true') || (startsWith(github.ref, 'refs/tags/v') && vars.PRODUCTION_INFRA_ENABLED == 'true')) }}
     runs-on: ubuntu-latest
     environment: ${{ github.ref == 'refs/heads/main' && 'staging' || 'production' }}
     concurrency:

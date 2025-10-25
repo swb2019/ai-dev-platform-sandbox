@@ -56,9 +56,10 @@
    Repository hardening launches `gh auth login --web` (Windows and WSL), refreshes the token scopes (`repo`, `workflow`, `admin:org`), and confirms the signed-in user has administrator rights on the repository. The helper relays each OAuth link to your Windows browser automatically; if it does not open, copy the printed URL manually. If you cancel or sign in with a non-admin account, rerun `./scripts/github-hardening.sh` later—it will keep prompting until authentication succeeds with an administrator.
 
 5. **Sign into Cursor, Codex, and Claude Code extensions**
-   - Launch Cursor (the Windows bootstrap installs it via winget and, if that fails, fetches and caches the newest signed Windows installer from Cursor's GitHub releases—respecting corporate proxy env vars—or honors `-CursorInstallerPath` / `CURSOR_INSTALLER_PATH` overrides including directories or `.zip` archives containing `CursorSetup*.exe`).
-   - Sign into GitHub inside Cursor.
-   - Open the Command Palette and run “Codex: Sign In” followed by “Claude Code: Sign In”.
+
+- Launch Cursor (the Windows bootstrap installs it via winget and, if that fails, fetches and caches the newest signed Windows installer from Cursor's GitHub releases—respecting corporate proxy env vars—or honors `-CursorInstallerPath` / `CURSOR_INSTALLER_PATH` overrides including directories or `.zip` archives containing `CursorSetup*.exe`).
+  - Sign into GitHub inside Cursor.
+  - Open the Command Palette and run “Codex: Sign In” followed by “Claude Code: Sign In”.
 
 6. **Verify the workspace**
 
@@ -80,6 +81,8 @@
    ./scripts/configure-github-env.sh staging
    ./scripts/configure-github-env.sh prod
    ```
+
+   Populate the GitHub repository secrets before expecting Terraform or deploy workflows to run automatically. Required entries include `TERRAFORM_SERVICE_ACCOUNT`, `WORKLOAD_IDENTITY_PROVIDER`, `GCP_PROJECT_ID`, `GCP_REGION`, `RUNTIME_KSA_NAMESPACE`, `RUNTIME_KSA_NAME`, `BA_ATTESTORS`, plus the environment-specific staging/production secrets for container registries, GKE, and Workload Identity. Enable the workflows via `vars.STAGING_INFRA_ENABLED`, `vars.PRODUCTION_INFRA_ENABLED`, `vars.STAGING_DEPLOY_ENABLED`, and `vars.PRODUCTION_DEPLOY_ENABLED`. Without these, the workflows emit a skip notice instead of failing.
 
    Provide your GCP project ID, region, and Terraform state bucket when prompted. Set `INFISICAL_TOKEN` if you use Infisical-managed secrets; the bootstrap now offers to paste an existing token and only generates one if you explicitly choose to.
 

@@ -16,8 +16,44 @@ jobs:
     steps:
       - run: echo "BA validation runs only on main; current ref ${{ github.ref }}."
 
+  provision-check:
+    name: Provision Guard
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.evaluate.outputs.ready }}
+      reason: ${{ steps.evaluate.outputs.reason }}
+    steps:
+      - id: evaluate
+        run: |
+          missing=()
+          note() { printf '::notice::%s\n' "$1"; }
+          check_secret() {
+            local key="$1"
+            local value="$2"
+            if [ -z "$value" ]; then
+              missing+=("$key")
+            fi
+          }
+          check_secret "STAGING_GCP_PROJECT_ID" "${{ secrets.STAGING_GCP_PROJECT_ID }}"
+          check_secret "STAGING_GKE_LOCATION" "${{ secrets.STAGING_GKE_LOCATION }}"
+          check_secret "STAGING_GKE_CLUSTER" "${{ secrets.STAGING_GKE_CLUSTER }}"
+          check_secret "STAGING_WORKLOAD_IDENTITY_PROVIDER" "${{ secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER }}"
+          check_secret "STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT" "${{ secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}"
+          if [ "${#missing[@]}" -gt 0 ]; then
+            reason="Missing secrets: ${missing[*]}"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=${reason//$'\n'/ }" >> "$GITHUB_OUTPUT"
+            note "Binary Authorization validation skipped – ${reason}"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "reason=ready" >> "$GITHUB_OUTPUT"
+            note "Binary Authorization validation prerequisites satisfied."
+          fi
+
   validate-binary-authorization:
     name: Validate Binary Authorization Enforcement
+    needs: provision-check
+    if: ${{ needs.provision-check.outputs.ready == 'true' }}
     runs-on: ubuntu-latest
     environment: staging
     env:

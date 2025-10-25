@@ -23,9 +23,48 @@ jobs:
     steps:
       - run: echo "Staging deploy runs only on main; current ref ${{ github.ref }}."
 
+  provision-check:
+    name: Provision Guard
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.evaluate.outputs.ready }}
+      reason: ${{ steps.evaluate.outputs.reason }}
+    steps:
+      - id: evaluate
+        run: |
+          missing=()
+          note() { printf '::notice::%s\n' "$1"; }
+          check_secret() {
+            local key="$1"
+            local value="$2"
+            if [ -z "$value" ]; then
+              missing+=("$key")
+            fi
+          }
+          check_secret "STAGING_IMAGE_REPO" "${{ secrets.STAGING_IMAGE_REPO }}"
+          check_secret "STAGING_ARTIFACT_REGISTRY_HOST" "${{ secrets.STAGING_ARTIFACT_REGISTRY_HOST }}"
+          check_secret "STAGING_GCP_PROJECT_ID" "${{ secrets.STAGING_GCP_PROJECT_ID }}"
+          check_secret "STAGING_GKE_LOCATION" "${{ secrets.STAGING_GKE_LOCATION }}"
+          check_secret "STAGING_GKE_CLUSTER" "${{ secrets.STAGING_GKE_CLUSTER }}"
+          check_secret "STAGING_WORKLOAD_IDENTITY_PROVIDER" "${{ secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER }}"
+          check_secret "STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT" "${{ secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}"
+          check_secret "STAGING_RUNTIME_GSA_EMAIL" "${{ secrets.STAGING_RUNTIME_GSA_EMAIL }}"
+          if [ "${#missing[@]}" -gt 0 ]; then
+            reason="Missing secrets: ${missing[*]}"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=${reason//$'\n'/ }" >> "$GITHUB_OUTPUT"
+            note "Staging deploy skipped – ${reason}"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "reason=ready" >> "$GITHUB_OUTPUT"
+            note "Staging deploy prerequisites satisfied."
+          fi
+
   deploy:
     name: Deploy to Staging
-    if: ${{ github.ref == 'refs/heads/main' && (vars.STAGING_DEPLOY_ENABLED == 'true' || vars.STAGING_DEPLOY_ENABLED == '' || vars.STAGING_DEPLOY_ENABLED == null) }}
+    needs: provision-check
+    if: ${{ github.ref == 'refs/heads/main' && needs.provision-check.outputs.ready == 'true' && (vars.STAGING_DEPLOY_ENABLED == 'true' || vars.STAGING_DEPLOY_ENABLED == '' || vars.STAGING_DEPLOY_ENABLED == null) }}
     runs-on: ubuntu-latest
     environment: staging
     env:
@@ -135,7 +174,7 @@ jobs:
   e2e-validation:
     name: E2E Validation
     needs: deploy
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && (vars.STAGING_DEPLOY_ENABLED == 'true' || vars.STAGING_DEPLOY_ENABLED == '' || vars.STAGING_DEPLOY_ENABLED == null) }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.deploy.result == 'success' && (vars.STAGING_DEPLOY_ENABLED == 'true' || vars.STAGING_DEPLOY_ENABLED == '' || vars.STAGING_DEPLOY_ENABLED == null) }}
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 30
