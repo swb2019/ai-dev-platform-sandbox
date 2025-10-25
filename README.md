@@ -136,7 +136,7 @@ Before you start, make sure you can provide the following:
 
    What the helper does:
    - Enables WSL2 features, installs/initializes Ubuntu, and sets it as default.
-   - Installs **Cursor** via winget (and automatically fetches the newest Windows installer from Cursor's GitHub releases—honoring proxy env vars—if winget cannot find or install it).
+   - Installs **Cursor** via winget (and, if winget cannot install it, fetches and caches the newest signed Windows installer from Cursor's GitHub releases—honoring proxy env vars—or respects `-CursorInstallerPath` / `CURSOR_INSTALLER_PATH` overrides).
    - Installs/updates Docker Desktop, enables WSL integration, and waits for the daemon.
    - Clones the repository inside WSL and executes `./scripts/setup-all.sh`.
    - Launches `gh auth login --web` inside both Windows and WSL contexts (if needed), refreshes the token scopes (`repo`, `workflow`, `admin:org`), and verifies the signed-in user has admin rights on the repository. The helper relays the OAuth URL to your Windows browser automatically; if it does not open, copy the printed URL manually and paste it into your browser.
@@ -144,7 +144,7 @@ Before you start, make sure you can provide the following:
    - Offers to configure Google Cloud (interactive `gcloud auth login`, `gcloud auth application-default login`, and `./scripts/bootstrap-infra.sh`) and to update GitHub environments automatically. Browser windows open on Windows; if the browser is blocked, copy the displayed URL manually. When the script reaches the Infisical step it first asks for an existing `INFISICAL_TOKEN` and only generates one (with a cost warning) if you explicitly opt in.
    - Offers to launch Cursor at the end so you can immediately sign into Codex and Claude Code.
 
-   You can supply overrides such as `-RepoSlug your-user/ai-dev-platform`, `-Branch feature`, `-WslUserName devuser`, or `-DockerInstallerPath C:\Installers\DockerDesktopInstaller.exe`. When prompted for optional tokens (`GH_TOKEN`, `INFISICAL_TOKEN`), press <kbd>Enter</kbd> to skip unless you have a PAT/Infisical secret ready. Re-running the helper is safe; it resumes from checkpoints stored under `~/.cache/ai-dev-platform/setup-state`.
+   You can supply overrides such as `-RepoSlug your-user/ai-dev-platform`, `-Branch feature`, `-WslUserName devuser`, `-DockerInstallerPath C:\Installers\DockerDesktopInstaller.exe`, or `-CursorInstallerPath C:\Installers\CursorSetup.exe`. When prompted for optional tokens (`GH_TOKEN`, `INFISICAL_TOKEN`), press <kbd>Enter</kbd> to skip unless you have a PAT/Infisical secret ready. Re-running the helper is safe; it resumes from checkpoints stored under `~/.cache/ai-dev-platform/setup-state`.
 
 5. **Sign into Cursor assistants (one time):**
    - Launch Cursor (installed to `%LOCALAPPDATA%\Programs\Cursor\Cursor.exe`).
@@ -195,7 +195,7 @@ Before you start, make sure you can provide the following:
 - **Replay GitHub hardening:** `./scripts/github-hardening.sh` (the script relaunches `gh auth login --web` until successful).
 - **Provide GitHub admin rights:** the account used during `gh auth login` must have admin permissions on `${OWNER}/${REPO}`; otherwise the hardening step will pause with instructions.
 - **Docker not ready:** On Windows, ensure Docker Desktop is running with WSL integration enabled; rerun the bootstrap helper.
-- **Cursor missing:** Re-run the Windows bootstrap; it now downloads the latest installer from GitHub if winget cannot find it. As a fallback you can install manually from <https://cursor.sh/download> and rerun the helper or `./scripts/update-editor-extensions.sh`.
+- **Cursor missing:** Re-run the Windows bootstrap; it caches the latest signed installer from Cursor's GitHub releases (respecting proxy env vars) and logs diagnostics to `%ProgramData%\ai-dev-platform\cursor-install.log` (or `%LOCALAPPDATA%\ai-dev-platform\cursor-install.log`). You can also provide `-CursorInstallerPath C:\Installers\CursorSetup.exe` (or set `CURSOR_INSTALLER_PATH`) and rerun, or install manually from <https://cursor.sh/download> before re-running the helper or `./scripts/update-editor-extensions.sh`.
 
 ### Additional scripts
 

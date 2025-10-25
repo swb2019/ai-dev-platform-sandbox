@@ -56,7 +56,7 @@
    Repository hardening launches `gh auth login --web` (Windows and WSL), refreshes the token scopes (`repo`, `workflow`, `admin:org`), and confirms the signed-in user has administrator rights on the repository. The helper relays each OAuth link to your Windows browser automatically; if it does not open, copy the printed URL manually. If you cancel or sign in with a non-admin account, rerun `./scripts/github-hardening.sh` later—it will keep prompting until authentication succeeds with an administrator.
 
 5. **Sign into Cursor, Codex, and Claude Code extensions**
-   - Launch Cursor (the Windows bootstrap installs it via winget and, if that fails, fetches the newest Windows installer directly from Cursor's GitHub releases—respecting corporate proxy env vars).
+   - Launch Cursor (the Windows bootstrap installs it via winget and, if that fails, fetches and caches the newest signed Windows installer from Cursor's GitHub releases—respecting corporate proxy env vars—or honors `-CursorInstallerPath` / `CURSOR_INSTALLER_PATH` overrides).
    - Sign into GitHub inside Cursor.
    - Open the Command Palette and run “Codex: Sign In” followed by “Claude Code: Sign In”.
 
