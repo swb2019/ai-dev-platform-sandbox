@@ -374,8 +374,8 @@ function Resolve-CursorInstallerPath {
 
 function Get-CursorInstallPath {
     $candidates = @(
-        Join-Path $env:LOCALAPPDATA "Programs\Cursor\Cursor.exe",
-        Join-Path $env:LOCALAPPDATA "Cursor\Cursor.exe"
+        (Join-Path -Path $env:LOCALAPPDATA -ChildPath "Programs\Cursor\Cursor.exe"),
+        (Join-Path -Path $env:LOCALAPPDATA -ChildPath "Cursor\Cursor.exe")
     )
     $pf = $env:ProgramFiles
     if (-not [string]::IsNullOrWhiteSpace($pf)) {
