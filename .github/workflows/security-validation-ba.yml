@@ -10,50 +10,37 @@ permissions:
   id-token: write
 
 jobs:
+  context:
+    name: Context
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "::notice::Binary Authorization validation triggered on $GITHUB_REF via $GITHUB_EVENT_NAME"
+
   skip:
     if: github.event_name == 'push' && github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - run: echo "BA validation runs only on main; current ref ${{ github.ref }}."
 
-  provision-check:
-    name: Provision Guard
+  explain-validation-skip:
+    name: Binary Authorization Validation (skipped)
     runs-on: ubuntu-latest
-    outputs:
-      ready: ${{ steps.evaluate.outputs.ready }}
-      reason: ${{ steps.evaluate.outputs.reason }}
+    if: ${{ secrets.STAGING_GCP_PROJECT_ID == '' || secrets.STAGING_GKE_LOCATION == '' || secrets.STAGING_GKE_CLUSTER == '' || secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER == '' || secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT == '' }}
     steps:
-      - id: evaluate
+      - name: Summarize missing prerequisites
         run: |
           missing=()
-          note() { printf '::notice::%s\n' "$1"; }
-          check_secret() {
-            local key="$1"
-            local value="$2"
-            if [ -z "$value" ]; then
-              missing+=("$key")
-            fi
-          }
-          check_secret "STAGING_GCP_PROJECT_ID" "${{ secrets.STAGING_GCP_PROJECT_ID }}"
-          check_secret "STAGING_GKE_LOCATION" "${{ secrets.STAGING_GKE_LOCATION }}"
-          check_secret "STAGING_GKE_CLUSTER" "${{ secrets.STAGING_GKE_CLUSTER }}"
-          check_secret "STAGING_WORKLOAD_IDENTITY_PROVIDER" "${{ secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER }}"
-          check_secret "STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT" "${{ secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}"
-          if [ "${#missing[@]}" -gt 0 ]; then
-            reason="Missing secrets: ${missing[*]}"
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "reason=${reason//$'\n'/ }" >> "$GITHUB_OUTPUT"
-            note "Binary Authorization validation skipped – ${reason}"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-            echo "reason=ready" >> "$GITHUB_OUTPUT"
-            note "Binary Authorization validation prerequisites satisfied."
-          fi
+          add_missing() { missing+=("$1"); }
+          [ -n "${{ secrets.STAGING_GCP_PROJECT_ID }}" ] || add_missing "STAGING_GCP_PROJECT_ID"
+          [ -n "${{ secrets.STAGING_GKE_LOCATION }}" ] || add_missing "STAGING_GKE_LOCATION"
+          [ -n "${{ secrets.STAGING_GKE_CLUSTER }}" ] || add_missing "STAGING_GKE_CLUSTER"
+          [ -n "${{ secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER }}" ] || add_missing "STAGING_WORKLOAD_IDENTITY_PROVIDER"
+          [ -n "${{ secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}" ] || add_missing "STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT"
+          echo "::notice::Binary Authorization validation skipped. Missing secrets: ${missing[*]}."
 
   validate-binary-authorization:
     name: Validate Binary Authorization Enforcement
-    needs: provision-check
-    if: ${{ needs.provision-check.outputs.ready == 'true' }}
+    if: ${{ secrets.STAGING_GCP_PROJECT_ID != '' && secrets.STAGING_GKE_LOCATION != '' && secrets.STAGING_GKE_CLUSTER != '' && secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT != '' }}
     runs-on: ubuntu-latest
     environment: staging
     env:

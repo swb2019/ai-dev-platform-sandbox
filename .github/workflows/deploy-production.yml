@@ -17,53 +17,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  context:
+    name: Context
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "::notice::Deploy production workflow triggered on $GITHUB_REF via $GITHUB_EVENT_NAME"
+
   skip:
     if: github.event_name == 'push' && github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - run: echo "Production deploy runs only on main; current ref ${{ github.ref }}."
 
-  provision-check:
-    name: Provision Guard
+  explain-deploy-skip:
+    name: Deploy to Production (skipped)
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !((vars.PRODUCTION_DEPLOY_ENABLED == 'true' || vars.PRODUCTION_DEPLOY_ENABLED == '' || vars.PRODUCTION_DEPLOY_ENABLED == null) && secrets.PRODUCTION_IMAGE_REPO != '' && secrets.PRODUCTION_ARTIFACT_REGISTRY_HOST != '' && secrets.PRODUCTION_GCP_PROJECT_ID != '' && secrets.PRODUCTION_GKE_LOCATION != '' && secrets.PRODUCTION_GKE_CLUSTER != '' && secrets.PRODUCTION_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.PRODUCTION_WORKLOAD_IDENTITY_SERVICE_ACCOUNT != '' && secrets.PRODUCTION_RUNTIME_GSA_EMAIL != '') }}
     runs-on: ubuntu-latest
-    outputs:
-      ready: ${{ steps.evaluate.outputs.ready }}
-      reason: ${{ steps.evaluate.outputs.reason }}
     steps:
-      - id: evaluate
+      - name: Summarize missing prerequisites
         run: |
           missing=()
-          note() { printf '::notice::%s\n' "$1"; }
-          check_secret() {
-            local key="$1"
-            local value="$2"
-            if [ -z "$value" ]; then
-              missing+=("$key")
-            fi
-          }
-          check_secret "PRODUCTION_IMAGE_REPO" "${{ secrets.PRODUCTION_IMAGE_REPO }}"
-          check_secret "PRODUCTION_ARTIFACT_REGISTRY_HOST" "${{ secrets.PRODUCTION_ARTIFACT_REGISTRY_HOST }}"
-          check_secret "PRODUCTION_GCP_PROJECT_ID" "${{ secrets.PRODUCTION_GCP_PROJECT_ID }}"
-          check_secret "PRODUCTION_GKE_LOCATION" "${{ secrets.PRODUCTION_GKE_LOCATION }}"
-          check_secret "PRODUCTION_GKE_CLUSTER" "${{ secrets.PRODUCTION_GKE_CLUSTER }}"
-          check_secret "PRODUCTION_WORKLOAD_IDENTITY_PROVIDER" "${{ secrets.PRODUCTION_WORKLOAD_IDENTITY_PROVIDER }}"
-          check_secret "PRODUCTION_WORKLOAD_IDENTITY_SERVICE_ACCOUNT" "${{ secrets.PRODUCTION_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}"
-          check_secret "PRODUCTION_RUNTIME_GSA_EMAIL" "${{ secrets.PRODUCTION_RUNTIME_GSA_EMAIL }}"
-          if [ "${#missing[@]}" -gt 0 ]; then
-            reason="Missing secrets: ${missing[*]}"
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "reason=${reason//$'\n'/ }" >> "$GITHUB_OUTPUT"
-            note "Production deploy skipped – ${reason}"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-            echo "reason=ready" >> "$GITHUB_OUTPUT"
-            note "Production deploy prerequisites satisfied."
+          add_missing() { missing+=("$1"); }
+          [ -n "${{ secrets.PRODUCTION_IMAGE_REPO }}" ] || add_missing "PRODUCTION_IMAGE_REPO"
+          [ -n "${{ secrets.PRODUCTION_ARTIFACT_REGISTRY_HOST }}" ] || add_missing "PRODUCTION_ARTIFACT_REGISTRY_HOST"
+          [ -n "${{ secrets.PRODUCTION_GCP_PROJECT_ID }}" ] || add_missing "PRODUCTION_GCP_PROJECT_ID"
+          [ -n "${{ secrets.PRODUCTION_GKE_LOCATION }}" ] || add_missing "PRODUCTION_GKE_LOCATION"
+          [ -n "${{ secrets.PRODUCTION_GKE_CLUSTER }}" ] || add_missing "PRODUCTION_GKE_CLUSTER"
+          [ -n "${{ secrets.PRODUCTION_WORKLOAD_IDENTITY_PROVIDER }}" ] || add_missing "PRODUCTION_WORKLOAD_IDENTITY_PROVIDER"
+          [ -n "${{ secrets.PRODUCTION_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}" ] || add_missing "PRODUCTION_WORKLOAD_IDENTITY_SERVICE_ACCOUNT"
+          [ -n "${{ secrets.PRODUCTION_RUNTIME_GSA_EMAIL }}" ] || add_missing "PRODUCTION_RUNTIME_GSA_EMAIL"
+          toggles=()
+          if ! { [ "${{ vars.PRODUCTION_DEPLOY_ENABLED }}" = "true" ] || [ -z "${{ vars.PRODUCTION_DEPLOY_ENABLED }}" ]; }; then
+            toggles+=("vars.PRODUCTION_DEPLOY_ENABLED")
           fi
+          message="Production deploy skipped."
+          if [ "${#missing[@]}" -gt 0 ]; then
+            message+=" Missing secrets: ${missing[*]}."
+          fi
+          if [ "${#toggles[@]}" -gt 0 ]; then
+            message+=" Enable toggles: ${toggles[*]}."
+          fi
+          echo "::notice::${message}"
 
   deploy:
     name: Deploy to Production
-    needs: provision-check
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.provision-check.outputs.ready == 'true' && (vars.PRODUCTION_DEPLOY_ENABLED == 'true' || vars.PRODUCTION_DEPLOY_ENABLED == '' || vars.PRODUCTION_DEPLOY_ENABLED == null) }}
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && (vars.PRODUCTION_DEPLOY_ENABLED == 'true' || vars.PRODUCTION_DEPLOY_ENABLED == '' || vars.PRODUCTION_DEPLOY_ENABLED == null) && secrets.PRODUCTION_IMAGE_REPO != '' && secrets.PRODUCTION_ARTIFACT_REGISTRY_HOST != '' && secrets.PRODUCTION_GCP_PROJECT_ID != '' && secrets.PRODUCTION_GKE_LOCATION != '' && secrets.PRODUCTION_GKE_CLUSTER != '' && secrets.PRODUCTION_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.PRODUCTION_WORKLOAD_IDENTITY_SERVICE_ACCOUNT != '' && secrets.PRODUCTION_RUNTIME_GSA_EMAIL != '' }}
     runs-on: ubuntu-latest
     environment: production
     env:

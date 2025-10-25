@@ -17,53 +17,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  context:
+    name: Context
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "::notice::Deploy staging workflow triggered on $GITHUB_REF via $GITHUB_EVENT_NAME"
+
   skip:
     if: github.event_name == 'push' && github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - run: echo "Staging deploy runs only on main; current ref ${{ github.ref }}."
 
-  provision-check:
-    name: Provision Guard
+  explain-deploy-skip:
+    name: Deploy to Staging (skipped)
+    if: ${{ github.ref == 'refs/heads/main' && !((vars.STAGING_DEPLOY_ENABLED == 'true' || vars.STAGING_DEPLOY_ENABLED == '' || vars.STAGING_DEPLOY_ENABLED == null) && secrets.STAGING_IMAGE_REPO != '' && secrets.STAGING_ARTIFACT_REGISTRY_HOST != '' && secrets.STAGING_GCP_PROJECT_ID != '' && secrets.STAGING_GKE_LOCATION != '' && secrets.STAGING_GKE_CLUSTER != '' && secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT != '' && secrets.STAGING_RUNTIME_GSA_EMAIL != '') }}
     runs-on: ubuntu-latest
-    outputs:
-      ready: ${{ steps.evaluate.outputs.ready }}
-      reason: ${{ steps.evaluate.outputs.reason }}
     steps:
-      - id: evaluate
+      - name: Summarize missing prerequisites
         run: |
           missing=()
-          note() { printf '::notice::%s\n' "$1"; }
-          check_secret() {
-            local key="$1"
-            local value="$2"
-            if [ -z "$value" ]; then
-              missing+=("$key")
-            fi
-          }
-          check_secret "STAGING_IMAGE_REPO" "${{ secrets.STAGING_IMAGE_REPO }}"
-          check_secret "STAGING_ARTIFACT_REGISTRY_HOST" "${{ secrets.STAGING_ARTIFACT_REGISTRY_HOST }}"
-          check_secret "STAGING_GCP_PROJECT_ID" "${{ secrets.STAGING_GCP_PROJECT_ID }}"
-          check_secret "STAGING_GKE_LOCATION" "${{ secrets.STAGING_GKE_LOCATION }}"
-          check_secret "STAGING_GKE_CLUSTER" "${{ secrets.STAGING_GKE_CLUSTER }}"
-          check_secret "STAGING_WORKLOAD_IDENTITY_PROVIDER" "${{ secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER }}"
-          check_secret "STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT" "${{ secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}"
-          check_secret "STAGING_RUNTIME_GSA_EMAIL" "${{ secrets.STAGING_RUNTIME_GSA_EMAIL }}"
-          if [ "${#missing[@]}" -gt 0 ]; then
-            reason="Missing secrets: ${missing[*]}"
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "reason=${reason//$'\n'/ }" >> "$GITHUB_OUTPUT"
-            note "Staging deploy skipped – ${reason}"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-            echo "reason=ready" >> "$GITHUB_OUTPUT"
-            note "Staging deploy prerequisites satisfied."
+          add_missing() { missing+=("$1"); }
+          [ -n "${{ secrets.STAGING_IMAGE_REPO }}" ] || add_missing "STAGING_IMAGE_REPO"
+          [ -n "${{ secrets.STAGING_ARTIFACT_REGISTRY_HOST }}" ] || add_missing "STAGING_ARTIFACT_REGISTRY_HOST"
+          [ -n "${{ secrets.STAGING_GCP_PROJECT_ID }}" ] || add_missing "STAGING_GCP_PROJECT_ID"
+          [ -n "${{ secrets.STAGING_GKE_LOCATION }}" ] || add_missing "STAGING_GKE_LOCATION"
+          [ -n "${{ secrets.STAGING_GKE_CLUSTER }}" ] || add_missing "STAGING_GKE_CLUSTER"
+          [ -n "${{ secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER }}" ] || add_missing "STAGING_WORKLOAD_IDENTITY_PROVIDER"
+          [ -n "${{ secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}" ] || add_missing "STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT"
+          [ -n "${{ secrets.STAGING_RUNTIME_GSA_EMAIL }}" ] || add_missing "STAGING_RUNTIME_GSA_EMAIL"
+          toggles=()
+          if ! { [ "${{ vars.STAGING_DEPLOY_ENABLED }}" = "true" ] || [ -z "${{ vars.STAGING_DEPLOY_ENABLED }}" ]; }; then
+            toggles+=("vars.STAGING_DEPLOY_ENABLED")
           fi
+          message="Staging deploy skipped."
+          if [ "${#missing[@]}" -gt 0 ]; then
+            message+=" Missing secrets: ${missing[*]}."
+          fi
+          if [ "${#toggles[@]}" -gt 0 ]; then
+            message+=" Enable toggles: ${toggles[*]}."
+          fi
+          echo "::notice::${message}"
 
   deploy:
     name: Deploy to Staging
-    needs: provision-check
-    if: ${{ github.ref == 'refs/heads/main' && needs.provision-check.outputs.ready == 'true' && (vars.STAGING_DEPLOY_ENABLED == 'true' || vars.STAGING_DEPLOY_ENABLED == '' || vars.STAGING_DEPLOY_ENABLED == null) }}
+    if: ${{ github.ref == 'refs/heads/main' && (vars.STAGING_DEPLOY_ENABLED == 'true' || vars.STAGING_DEPLOY_ENABLED == '' || vars.STAGING_DEPLOY_ENABLED == null) && secrets.STAGING_IMAGE_REPO != '' && secrets.STAGING_ARTIFACT_REGISTRY_HOST != '' && secrets.STAGING_GCP_PROJECT_ID != '' && secrets.STAGING_GKE_LOCATION != '' && secrets.STAGING_GKE_CLUSTER != '' && secrets.STAGING_WORKLOAD_IDENTITY_PROVIDER != '' && secrets.STAGING_WORKLOAD_IDENTITY_SERVICE_ACCOUNT != '' && secrets.STAGING_RUNTIME_GSA_EMAIL != '' }}
     runs-on: ubuntu-latest
     environment: staging
     env:
