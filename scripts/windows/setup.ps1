@@ -69,15 +69,135 @@ function New-RandomSecret {
     return $secret
 }
 
+function Get-CursorInstallPath {
+    $candidates = @(
+        Join-Path $env:LOCALAPPDATA "Programs\Cursor\Cursor.exe",
+        Join-Path $env:LOCALAPPDATA "Cursor\Cursor.exe"
+    )
+    $pf = $env:ProgramFiles
+    if (-not [string]::IsNullOrWhiteSpace($pf)) {
+        $candidates += Join-Path $pf "Cursor\Cursor.exe"
+    }
+    $pf86 = ${env:ProgramFiles(x86)}
+    if (-not [string]::IsNullOrWhiteSpace($pf86)) {
+        $candidates += Join-Path $pf86 "Cursor\Cursor.exe"
+    }
+    foreach ($path in ($candidates | Where-Object { $_ -and (Test-Path $_) })) {
+        return $path
+    }
+    try {
+        $cmd = Get-Command "Cursor.exe" -ErrorAction Stop
+        if ($cmd -and $cmd.Source -and (Test-Path $cmd.Source)) {
+            return $cmd.Source
+        }
+    } catch {
+        # ignore lookup failures; we'll fall back to manual checks
+    }
+    return $null
+}
+
+function Get-CursorInstallerDownloadInfo {
+    $headers = @{
+        "User-Agent" = "ai-dev-platform-bootstrap"
+        "Accept"     = "application/vnd.github+json"
+    }
+    $token = $null
+    foreach ($candidate in @($env:GH_TOKEN, $env:GITHUB_TOKEN)) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+            $token = $candidate
+            break
+        }
+    }
+    if ($token) {
+        $headers["Authorization"] = "Bearer $token"
+    }
+
+    $invokeParams = @{
+        Uri         = "https://api.github.com/repos/cursor/cursor/releases/latest"
+        Headers     = $headers
+        ErrorAction = 'Stop'
+    }
+    $proxy = $null
+    foreach ($candidateProxy in @($env:HTTPS_PROXY, $env:HTTP_PROXY, $env:ALL_PROXY)) {
+        if (-not [string]::IsNullOrWhiteSpace($candidateProxy)) {
+            $proxy = $candidateProxy
+            break
+        }
+    }
+    if ($proxy) {
+        $invokeParams["Proxy"] = $proxy
+        $invokeParams["ProxyUseDefaultCredentials"] = $true
+    }
+
+    try {
+        $release = Invoke-RestMethod @invokeParams
+    } catch {
+        Write-Warning ("Unable to query Cursor releases from GitHub API ({0}). Falling back to static download URL." -f $_.Exception.Message)
+        return $null
+    }
+
+    if (-not $release -or -not $release.assets) {
+        Write-Warning "Cursor release metadata did not include downloadable assets. Falling back to static download URL."
+        return $null
+    }
+
+    $assets = @($release.assets)
+    $preferred = $assets | Where-Object { $_.browser_download_url -match 'CursorSetup\.exe$' } | Select-Object -First 1
+    if (-not $preferred) {
+        $preferred = $assets | Where-Object { $_.browser_download_url -match '\.exe$' } | Select-Object -First 1
+    }
+    if (-not $preferred) {
+        Write-Warning "Cursor release assets did not contain an .exe installer. Falling back to static download URL."
+        return $null
+    }
+
+    $fileName = if ($preferred.name) { $preferred.name } else { "CursorSetup.exe" }
+    return [pscustomobject]@{
+        DownloadUrl = $preferred.browser_download_url
+        FileName    = $fileName
+    }
+}
+
 function Install-CursorViaDownload {
     param([string]$ExpectedPath)
 
-    $downloadUrl = "https://github.com/cursor/cursor/releases/latest/download/CursorSetup.exe"
-    $tempPath = Join-Path ([System.IO.Path]::GetTempPath()) "CursorSetup.exe"
+    $downloadInfo = Get-CursorInstallerDownloadInfo
+    $downloadUrl = if ($downloadInfo) { $downloadInfo.DownloadUrl } else { "https://github.com/cursor/cursor/releases/latest/download/CursorSetup.exe" }
+    $fileName = if ($downloadInfo) { $downloadInfo.FileName } else { "CursorSetup.exe" }
+    $tempPath = Join-Path ([System.IO.Path]::GetTempPath()) $fileName
+    $token = $null
+    foreach ($candidate in @($env:GH_TOKEN, $env:GITHUB_TOKEN)) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+            $token = $candidate
+            break
+        }
+    }
+    $proxy = $null
+    foreach ($candidateProxy in @($env:HTTPS_PROXY, $env:HTTP_PROXY, $env:ALL_PROXY)) {
+        if (-not [string]::IsNullOrWhiteSpace($candidateProxy)) {
+            $proxy = $candidateProxy
+            break
+        }
+    }
     Write-Host "Attempting Cursor installation via direct download fallback..." -ForegroundColor Yellow
     Write-Host "Downloading Cursor installer from $downloadUrl"
     try {
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $tempPath -UseBasicParsing -ErrorAction Stop
+        $invokeParams = @{
+            Uri             = $downloadUrl
+            OutFile         = $tempPath
+            UseBasicParsing = $true
+            ErrorAction     = 'Stop'
+            Headers         = @{ "User-Agent" = "ai-dev-platform-bootstrap" }
+        }
+        if ($token) {
+            # reuse token for content-download requests
+            $invokeParams["Headers"]["Authorization"] = "Bearer $token"
+        }
+        if ($proxy) {
+            $invokeParams["Proxy"] = $proxy
+            $invokeParams["ProxyUseDefaultCredentials"] = $true
+        }
+        Invoke-WebRequest @invokeParams
     } catch {
         Write-Warning "Failed to download Cursor installer automatically ($($_.Exception.Message)). Install Cursor manually from https://cursor.sh/download and rerun this script."
         return $false
@@ -100,18 +220,28 @@ function Install-CursorViaDownload {
         }
     }
 
-    if (Test-Path $ExpectedPath) {
-        Write-Host "Cursor installation completed successfully at $ExpectedPath."
+    $installPath = Get-CursorInstallPath
+    if ($installPath) {
+        Write-Host "Cursor installation completed successfully at $installPath."
         return $true
     }
 
-    Write-Warning "Cursor installer did not create $ExpectedPath. Install Cursor manually from https://cursor.sh/download and rerun this script."
+    if ($ExpectedPath) {
+        Write-Warning "Cursor installer completed but '$ExpectedPath' (or any known Cursor.exe path) was not found. Install Cursor manually from https://cursor.sh/download and rerun this script."
+    } else {
+        Write-Warning "Cursor installer completed without registering Cursor.exe. Install Cursor manually from https://cursor.sh/download and rerun this script."
+    }
     return $false
 }
 
 function Ensure-Cursor {
     Write-Section "Ensuring Cursor editor is installed"
     $cursorPath = Join-Path $env:LOCALAPPDATA "Programs\Cursor\Cursor.exe"
+    $existingPath = Get-CursorInstallPath
+    if ($existingPath) {
+        Write-Host "Cursor already installed at $existingPath."
+        return
+    }
     try {
         Ensure-Winget
     } catch {
@@ -134,9 +264,12 @@ function Ensure-Cursor {
         Write-Warning "winget list failed to detect Cursor ($_). Continuing with installation attempt."
     }
 
-    if ($installed -and (Test-Path $cursorPath)) {
-        Write-Host "Cursor already installed at $cursorPath."
-        return
+    if ($installed) {
+        $detectedPath = Get-CursorInstallPath
+        if ($detectedPath) {
+            Write-Host "Cursor already installed at $detectedPath."
+            return
+        }
     }
 
     Write-Host "Installing Cursor editor via winget..."
@@ -147,8 +280,9 @@ function Ensure-Cursor {
     $proc = Start-Process -FilePath "winget" -ArgumentList $arguments -NoNewWindow -Wait -PassThru
     switch ($proc.ExitCode) {
         0 {
-            if (Test-Path $cursorPath) {
-                Write-Host "Cursor installation completed successfully at $cursorPath."
+            $postInstallPath = Get-CursorInstallPath
+            if ($postInstallPath) {
+                Write-Host "Cursor installation completed successfully at $postInstallPath."
                 return
             } else {
                 Write-Warning "Cursor installer reported success but $cursorPath was not found. Attempting direct-download fallback."
