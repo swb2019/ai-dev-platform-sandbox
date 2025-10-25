@@ -34,7 +34,6 @@ jobs:
 
   provision-check:
     name: Provision Guard
-    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.evaluate.outputs.ready }}

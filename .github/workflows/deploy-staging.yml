@@ -25,7 +25,6 @@ jobs:
 
   provision-check:
     name: Provision Guard
-    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.evaluate.outputs.ready }}
