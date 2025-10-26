@@ -594,7 +594,7 @@ function Get-CursorDownloadCandidatesFromHtml {
         return @()
     }
 
-    $pattern = 'https://downloads\.cursor\.com/[^\s"\\\']+'
+    $pattern = 'https://downloads\.cursor\.com/[^\s"\\'']+'
     $matches = [regex]::Matches($Content, $pattern)
     if ($matches.Count -eq 0) {
         return @()
