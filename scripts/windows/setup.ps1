@@ -109,6 +109,7 @@ function Initialize-CursorInstallerContext {
             }
             $script:CursorInstallerCacheDir = $cursorCache
             $script:CursorInstallerLogFile = Join-Path $root "cursor-install.log"
+            $script:CursorInstallerMetadataPath = Join-Path $root "cursor-installer.json"
             $script:CursorInstallerContextReady = $true
             break
         } catch {
@@ -118,6 +119,7 @@ function Initialize-CursorInstallerContext {
     if (-not $script:CursorInstallerContextReady) {
         $script:CursorInstallerCacheDir = $null
         $script:CursorInstallerLogFile = $null
+        $script:CursorInstallerMetadataPath = $null
     }
 }
 
@@ -170,6 +172,54 @@ function Get-CursorInstallerCachePath {
     }
     $fileName = "CursorSetup-{0}.exe" -f $safeSegment
     return Join-Path $script:CursorInstallerCacheDir $fileName
+}
+
+function Get-CursorInstallerMetadata {
+    Initialize-CursorInstallerContext
+    $path = $script:CursorInstallerMetadataPath
+    if (-not $path -or -not (Test-Path $path)) {
+        return $null
+    }
+    try {
+        $content = Get-Content -Path $path -ErrorAction Stop -Raw
+        if ([string]::IsNullOrWhiteSpace($content)) {
+            return $null
+        }
+        $data = $content | ConvertFrom-Json -ErrorAction Stop
+        if (-not $data.DownloadUrl) {
+            return $null
+        }
+        return $data
+    } catch {
+        Write-CursorLog ("Failed to read Cursor installer metadata: {0}" -f $_.Exception.Message)
+        return $null
+    }
+}
+
+function Save-CursorInstallerMetadata {
+    param(
+        [Parameter(Mandatory = $true)]
+        [psobject]$Info
+    )
+
+    Initialize-CursorInstallerContext
+    $path = $script:CursorInstallerMetadataPath
+    if (-not $path) {
+        return
+    }
+
+    try {
+        $payload = [pscustomobject]@{
+            DownloadUrl = $Info.DownloadUrl
+            FileName    = $Info.FileName
+            Version     = $Info.Version
+            SavedAtUtc  = [DateTime]::UtcNow.ToString("o")
+        } | ConvertTo-Json -Depth 3
+        Set-Content -Path $path -Value $payload -Encoding UTF8
+        Write-CursorLog ("Cursor installer metadata saved to {0}" -f $path)
+    } catch {
+        Write-CursorLog ("Failed to persist Cursor installer metadata: {0}" -f $_.Exception.Message)
+    }
 }
 
 function Test-CursorInstallerSignature {
@@ -432,39 +482,343 @@ function Get-CursorInstallerDownloadInfo {
         $invokeParams["ProxyUseDefaultCredentials"] = $true
     }
 
+    $resolvedInfo = $null
     try {
         $release = Invoke-RestMethod @invokeParams
     } catch {
-        Write-Warning ("Unable to query Cursor releases from GitHub API ({0}). Falling back to static download URL." -f $_.Exception.Message)
+        Write-Warning ("Unable to query Cursor releases from GitHub API ({0}). Attempting cursor.com download manifest instead." -f $_.Exception.Message)
         Write-CursorLog ("GitHub release lookup failed: {0}" -f $_.Exception.Message)
+        $release = $null
+    }
+
+    if ($release -and $release.assets) {
+        $assets = @($release.assets)
+        $preferred = $assets | Where-Object { $_.browser_download_url -match 'CursorSetup\.exe$' } | Select-Object -First 1
+        if (-not $preferred) {
+            $preferred = $assets | Where-Object { $_.browser_download_url -match '\.exe$' } | Select-Object -First 1
+        }
+        if ($preferred) {
+            $fileName = if ($preferred.name) { $preferred.name } else { "CursorSetup.exe" }
+            $version = if ($release.tag_name) { $release.tag_name } elseif ($release.name) { $release.name } else { $null }
+            $versionDisplay = if (-not [string]::IsNullOrWhiteSpace($version)) { $version } else { "unknown" }
+            Write-CursorLog ("Cursor release resolved from GitHub API (version: {0}, asset: {1})" -f $versionDisplay, $preferred.browser_download_url)
+            $resolvedInfo = [pscustomobject]@{
+                DownloadUrl = $preferred.browser_download_url
+                FileName    = $fileName
+                Version     = $version
+            }
+        } else {
+            Write-CursorLog "Cursor release assets did not contain a recognizable Windows installer. Falling back to cursor.com manifest."
+        }
+    } else {
+        Write-CursorLog "Cursor GitHub release metadata unavailable or missing assets; falling back to cursor.com manifest."
+    }
+
+    if (-not $resolvedInfo) {
+        $resolvedInfo = Get-CursorInstallerDownloadInfoFromCursorSite
+    }
+
+    if ($resolvedInfo) {
+        Save-CursorInstallerMetadata -Info $resolvedInfo
+        return $resolvedInfo
+    }
+
+    $savedMetadata = Get-CursorInstallerMetadata
+    if ($savedMetadata) {
+        Write-Warning "Reusing previously saved Cursor installer information."
+        Write-CursorLog ("Using cached Cursor installer metadata (version: {0}, url: {1})." -f $savedMetadata.Version, $savedMetadata.DownloadUrl)
+        return $savedMetadata
+    }
+
+    foreach ($fallback in Get-CursorStaticDownloadFallbacks()) {
+        if (-not $fallback -or -not $fallback.DownloadUrl) {
+            continue
+        }
+        $fallbackVersion = if (-not [string]::IsNullOrWhiteSpace($fallback.Version)) { $fallback.Version } else { "unknown" }
+        Write-Warning ("Using bundled Cursor download fallback (version: {0})." -f $fallbackVersion)
+        Write-CursorLog ("Falling back to bundled Cursor download URL: {0}" -f $fallback.DownloadUrl)
+        Save-CursorInstallerMetadata -Info $fallback
+        return $fallback
+    }
+
+    return $null
+}
+
+function Get-CursorInstallerDownloadInfoFromCursorSite {
+    $downloadPage = "https://cursor.com/download"
+    $headers = @{ "User-Agent" = "ai-dev-platform-bootstrap" }
+    try {
+        $response = Invoke-WebRequest -Uri $downloadPage -UseBasicParsing -Headers $headers -ErrorAction Stop
+    } catch {
+        Write-Warning ("Unable to retrieve Cursor download page ({0})." -f $_.Exception.Message)
+        Write-CursorLog ("Cursor download page request failed: {0}" -f $_.Exception.Message)
         return $null
     }
 
-    if (-not $release -or -not $release.assets) {
-        Write-Warning "Cursor release metadata did not include downloadable assets. Falling back to static download URL."
-        Write-CursorLog "Cursor release metadata missing assets; using static download URL."
+    $content = $response.Content
+    if ([string]::IsNullOrWhiteSpace($content)) {
+        Write-Warning "Cursor download page response was empty."
+        Write-CursorLog "Cursor download page response empty."
         return $null
     }
 
-    $assets = @($release.assets)
-    $preferred = $assets | Where-Object { $_.browser_download_url -match 'CursorSetup\.exe$' } | Select-Object -First 1
+    $candidates = Get-CursorDownloadCandidatesFromHtml -Content $content
+    $windowsCandidates = @($candidates | Where-Object { $_.Url -match 'win32' })
+    if ($windowsCandidates.Count -eq 0) {
+        Write-Warning "Cursor download page did not contain a recognizable Windows installer link."
+        Write-CursorLog "Cursor download page parsing failed to locate Windows installer link."
+        return $null
+    }
+
+    $preferred = $windowsCandidates | Where-Object { $_.Architecture -eq 'x64' -and $_.Variant -eq 'user' } | Select-Object -First 1
     if (-not $preferred) {
-        $preferred = $assets | Where-Object { $_.browser_download_url -match '\.exe$' } | Select-Object -First 1
+        $preferred = $windowsCandidates | Where-Object { $_.Architecture -eq 'x64' } | Select-Object -First 1
     }
     if (-not $preferred) {
-        Write-Warning "Cursor release assets did not contain an .exe installer. Falling back to static download URL."
-        return $null
+        $preferred = $windowsCandidates[0]
     }
 
-    $fileName = if ($preferred.name) { $preferred.name } else { "CursorSetup.exe" }
-    $version = if ($release.tag_name) { $release.tag_name } elseif ($release.name) { $release.name } else { $null }
-    $versionDisplay = if (-not [string]::IsNullOrWhiteSpace($version)) { $version } else { "unknown" }
-    Write-CursorLog ("Cursor release resolved from GitHub API (version: {0}, asset: {1})" -f $versionDisplay, $preferred.browser_download_url)
+    $versionDisplay = if (-not [string]::IsNullOrWhiteSpace($preferred.Version)) { $preferred.Version } else { "unknown" }
+    Write-CursorLog ("Cursor installer resolved from cursor.com (version: {0}, url: {1})" -f $versionDisplay, $preferred.Url)
     return [pscustomobject]@{
-        DownloadUrl = $preferred.browser_download_url
-        FileName    = $fileName
-        Version     = $version
+        DownloadUrl = $preferred.Url
+        FileName    = $preferred.FileName
+        Version     = $preferred.Version
     }
+}
+
+function Get-CursorDownloadCandidatesFromHtml {
+    param([string]$Content)
+
+    if ([string]::IsNullOrWhiteSpace($Content)) {
+        return @()
+    }
+
+    $pattern = 'https://downloads\.cursor\.com/[^\s"\\\']+'
+    $matches = [regex]::Matches($Content, $pattern)
+    if ($matches.Count -eq 0) {
+        return @()
+    }
+
+    $candidates = New-Object System.Collections.Generic.List[object]
+    $seen = New-Object System.Collections.Generic.HashSet[string]
+    foreach ($match in $matches) {
+        $url = $match.Value
+        if (-not ($url -match '\.exe$')) {
+            continue
+        }
+        if (-not $seen.Add($url)) {
+            continue
+        }
+
+        $segments = $url.Split('/')
+        if ($segments.Length -lt 3) {
+            continue
+        }
+        $arch = $segments | Select-Object -Last 3 | Select-Object -First 1
+        $setupType = $segments | Select-Object -Last 2 | Select-Object -First 1
+        $fileName = Split-Path -Path $url -Leaf
+        $variant = "unknown"
+        if ($setupType -match 'user-setup') {
+            $variant = "user"
+        } elseif ($setupType -match 'system-setup') {
+            $variant = "system"
+        }
+        $architecture = if ($arch -match 'arm') { "arm64" } elseif ($arch -match 'x64') { "x64" } else { "unknown" }
+
+        $version = $null
+        $versionMatch = [regex]::Match($fileName, '([0-9]+(?:\.[0-9]+)+)')
+        if ($versionMatch.Success) {
+            $version = $versionMatch.Groups[1].Value
+        }
+
+        $candidates.Add([pscustomobject]@{
+            Url          = $url
+            Variant      = $variant
+            Architecture = $architecture
+            FileName     = $fileName
+            Version      = $version
+        })
+    }
+    return @($candidates.ToArray())
+}
+
+function Get-CursorStaticDownloadFallbacks {
+    $fallbacks = @(
+        [pscustomobject]@{
+            DownloadUrl = "https://downloads.cursor.com/production/823f58d4f60b795a6aefb9955933f3a2f0331d7b/win32/x64/user-setup/CursorUserSetup-x64-1.5.5.exe"
+            FileName    = "CursorUserSetup-x64-1.5.5.exe"
+            Version     = "1.5.5"
+            Architecture = "x64"
+            Variant      = "user"
+        },
+        [pscustomobject]@{
+            DownloadUrl = "https://downloads.cursor.com/production/823f58d4f60b795a6aefb9955933f3a2f0331d7b/win32/arm64/user-setup/CursorUserSetup-arm64-1.5.5.exe"
+            FileName    = "CursorUserSetup-arm64-1.5.5.exe"
+            Version     = "1.5.5"
+            Architecture = "arm64"
+            Variant      = "user"
+        },
+        [pscustomobject]@{
+            DownloadUrl = "https://downloads.cursor.com/production/823f58d4f60b795a6aefb9955933f3a2f0331d7b/win32/x64/system-setup/CursorSetup-x64-1.5.5.exe"
+            FileName    = "CursorSetup-x64-1.5.5.exe"
+            Version     = "1.5.5"
+            Architecture = "x64"
+            Variant      = "system"
+        }
+    )
+    return $fallbacks
+}
+
+function Invoke-RobustDownload {
+    param(
+        [string]$Uri,
+        [string]$Destination,
+        [hashtable]$Headers = $null,
+        [string]$Proxy = $null,
+        [int]$Attempts = 3
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Uri) -or [string]::IsNullOrWhiteSpace($Destination)) {
+        throw "Uri and Destination are required."
+    }
+
+    try {
+        $tls12 = [System.Net.SecurityProtocolType]::Tls12
+        $current = [System.Net.ServicePointManager]::SecurityProtocol
+        $desired = $current -bor $tls12
+        try {
+            $tls13 = [System.Net.SecurityProtocolType]::Tls13
+            $desired = $desired -bor $tls13
+        } catch {
+            # TLS 1.3 not available on this runtime; ignore.
+        }
+        [System.Net.ServicePointManager]::SecurityProtocol = $desired
+    } catch {
+        # Ignore TLS configuration errors on downlevel PowerShell
+    }
+
+    $useBits = $false
+    $bitsCommand = Get-Command -Name Start-BitsTransfer -ErrorAction SilentlyContinue
+    if ($bitsCommand) {
+        $useBits = $true
+    }
+
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        try {
+            $invokeParams = @{
+                Uri             = $Uri
+                OutFile         = $Destination
+                UseBasicParsing = $true
+                ErrorAction     = 'Stop'
+            }
+            if ($Headers) { $invokeParams["Headers"] = $Headers }
+            if ($Proxy) {
+                $invokeParams["Proxy"] = $Proxy
+                $invokeParams["ProxyUseDefaultCredentials"] = $true
+            }
+            Invoke-WebRequest @invokeParams
+            return $true
+        } catch {
+            Write-Warning ("Download attempt {0}/{1} with Invoke-WebRequest failed ({2})." -f $attempt, $Attempts, $_.Exception.Message)
+            Write-CursorLog ("Invoke-WebRequest download attempt {0} failed: {1}" -f $attempt, $_.Exception.Message)
+            if (Test-Path $Destination) {
+                try { Remove-Item $Destination -Force -ErrorAction SilentlyContinue } catch { }
+            }
+        }
+
+        if ($useBits) {
+            try {
+                Start-BitsTransfer -Source $Uri -Destination $Destination -ErrorAction Stop -Description "Downloading Cursor installer"
+                return $true
+            } catch {
+                Write-Warning ("Download attempt {0}/{1} with Start-BitsTransfer failed ({2})." -f $attempt, $Attempts, $_.Exception.Message)
+                Write-CursorLog ("Start-BitsTransfer download attempt {0} failed: {1}" -f $attempt, $_.Exception.Message)
+                if (Test-Path $Destination) {
+                    try { Remove-Item $Destination -Force -ErrorAction SilentlyContinue } catch { }
+                }
+            }
+        }
+
+        if ($attempt -lt $Attempts) {
+            Start-Sleep -Seconds ([Math]::Min(15, 3 * $attempt))
+        }
+    }
+
+    return $false
+}
+
+function Open-UrlInBrowser {
+    param([string]$Url, [string]$Description)
+    if ([string]::IsNullOrWhiteSpace($Url)) {
+        return
+    }
+    try {
+        Write-Host ("Opening {0}..." -f (if ($Description) { $Description } else { $Url })) -ForegroundColor Yellow
+        Start-Process -FilePath $Url | Out-Null
+        return
+    } catch {
+        Write-CursorLog ("Start-Process launch for {0} failed: {1}" -f $Url, $_.Exception.Message)
+    }
+    try {
+        Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "start", "", $Url) -WindowStyle Hidden | Out-Null
+    } catch {
+        Write-Warning ("Unable to open {0} automatically ({1})." -f (if ($Description) { $Description } else { $Url }), $_.Exception.Message)
+    }
+}
+
+function Invoke-CursorManualDownloadFallback {
+    param(
+        [string]$DownloadUrl,
+        [string]$ExpectedPath
+    )
+
+    Write-Warning "Automated Cursor download failed. Launching the Cursor download page for manual installation."
+    if ($DownloadUrl) {
+        Write-Host "If prompted, select the Windows installer download." -ForegroundColor Yellow
+    }
+    Open-UrlInBrowser -Url "https://cursor.com/download" -Description "Cursor download page"
+    if ($DownloadUrl) {
+        Write-Host ("You can also download the installer directly from: {0}" -f $DownloadUrl) -ForegroundColor Yellow
+    }
+    Write-Host "Once the installer finishes, complete the setup wizard. The script will wait for Cursor.exe to appear." -ForegroundColor Yellow
+
+    $waitSeconds = 0
+    $promptInterval = 30
+    $timeoutSeconds = 300
+    while ($waitSeconds -lt $timeoutSeconds) {
+        Start-Sleep -Seconds 10
+        $waitSeconds += 10
+        $installPath = Get-CursorInstallPath
+        if ($installPath) {
+            Write-Host ("Detected Cursor installation at {0}. Continuing bootstrap." -f $installPath) -ForegroundColor Green
+            Write-CursorLog ("Manual Cursor installation detected at {0} after {1} seconds." -f $installPath, $waitSeconds)
+            return $true
+        }
+        if (($waitSeconds % $promptInterval) -eq 0) {
+            try {
+                $manualInstaller = Read-Host "Enter path to a downloaded Cursor installer to run now (press Enter to continue waiting)"
+            } catch {
+                $manualInstaller = $null
+            }
+            if (-not [string]::IsNullOrWhiteSpace($manualInstaller)) {
+                $expandedPath = [Environment]::ExpandEnvironmentVariables($manualInstaller.Trim())
+                if (-not (Test-Path $expandedPath)) {
+                    Write-Warning ("The path '{0}' was not found. Continuing to wait for Cursor installation..." -f $expandedPath)
+                    continue
+                }
+                Write-Host ("Attempting installation from '{0}'." -f $expandedPath)
+                if (Install-CursorFromPath -Path $expandedPath -ExpectedVersion $null -ExpectedInstallPath $ExpectedPath) {
+                    return $true
+                }
+                Write-Warning "Manual installer execution did not complete successfully. Continuing to wait for Cursor.exe to appear."
+            }
+        }
+    }
+
+    Write-Warning "Cursor executable was not detected after waiting five minutes. Complete the installation manually and rerun this script."
+    Write-CursorLog "Cursor manual installation not detected within timeout window."
+    return $false
 }
 
 function Install-CursorViaDownload {
@@ -473,9 +827,15 @@ function Install-CursorViaDownload {
     Initialize-CursorInstallerContext
     Write-Host "Attempting Cursor installation via direct download fallback..." -ForegroundColor Yellow
     $downloadInfo = Get-CursorInstallerDownloadInfo
-    $downloadUrl = if ($downloadInfo) { $downloadInfo.DownloadUrl } else { "https://github.com/cursor/cursor/releases/latest/download/CursorSetup.exe" }
-    $fileName = if ($downloadInfo) { $downloadInfo.FileName } else { "CursorSetup.exe" }
-    $expectedVersion = if ($downloadInfo) { $downloadInfo.Version } else { $null }
+    if (-not $downloadInfo) {
+        Write-Warning "Unable to resolve a Cursor installer download URL automatically. Install Cursor manually from https://cursor.com/download and rerun this script."
+        Write-CursorLog "Cursor installer download info unavailable; aborting automated download."
+        return $false
+    }
+
+    $downloadUrl = $downloadInfo.DownloadUrl
+    $fileName = $downloadInfo.FileName
+    $expectedVersion = $downloadInfo.Version
     $cachePath = Get-CursorInstallerCachePath -Version $expectedVersion
     $installerPath = $null
 
@@ -513,28 +873,20 @@ function Install-CursorViaDownload {
         Write-Host "Downloading Cursor installer from $downloadUrl"
         Write-CursorLog ("Downloading Cursor installer from {0}" -f $downloadUrl)
         try {
-            $invokeParams = @{
-                Uri             = $downloadUrl
-                OutFile         = $tempPath
-                UseBasicParsing = $true
-                ErrorAction     = 'Stop'
-                Headers         = @{ "User-Agent" = "ai-dev-platform-bootstrap" }
-            }
+            $headers = @{ "User-Agent" = "ai-dev-platform-bootstrap" }
             if ($token) {
-                $invokeParams["Headers"]["Authorization"] = "Bearer $token"
+                $headers["Authorization"] = "Bearer $token"
             }
-            if ($proxy) {
-                $invokeParams["Proxy"] = $proxy
-                $invokeParams["ProxyUseDefaultCredentials"] = $true
+            if (-not (Invoke-RobustDownload -Uri $downloadUrl -Destination $tempPath -Headers $headers -Proxy $proxy)) {
+                throw "All automated download attempts failed."
             }
-            Invoke-WebRequest @invokeParams
         } catch {
-            Write-Warning "Failed to download Cursor installer automatically ($($_.Exception.Message)). Install Cursor manually from https://cursor.sh/download and rerun this script."
+            Write-Warning "Failed to download Cursor installer automatically ($($_.Exception.Message)). Install Cursor manually from https://cursor.com/download and rerun this script."
             Write-CursorLog ("Cursor installer download failed: {0}" -f $_.Exception.Message)
             if ($tempPath) {
                 try { Remove-Item $tempPath -Force -ErrorAction SilentlyContinue } catch { }
             }
-            return $false
+            return Invoke-CursorManualDownloadFallback -DownloadUrl $downloadUrl -ExpectedPath $ExpectedPath
         }
 
         try {
@@ -546,7 +898,7 @@ function Install-CursorViaDownload {
 
         if (-not (Test-CursorInstallerSignature -Path $tempPath)) {
             try { Remove-Item $tempPath -Force -ErrorAction SilentlyContinue } catch { }
-            return $false
+            return Invoke-CursorManualDownloadFallback -DownloadUrl $downloadUrl -ExpectedPath $ExpectedPath
         }
 
         if ($cachePath) {
@@ -571,6 +923,11 @@ function Install-CursorViaDownload {
     if ($tempPath -and (Test-Path $tempPath) -and ($installerPath -ne $tempPath)) {
         try { Remove-Item $tempPath -Force -ErrorAction SilentlyContinue } catch { }
     }
+
+    if (-not $result) {
+        return Invoke-CursorManualDownloadFallback -DownloadUrl $downloadUrl -ExpectedPath $ExpectedPath
+    }
+
     return $result
 }
 
@@ -600,7 +957,7 @@ function Ensure-Cursor {
         Write-CursorLog ("Winget unavailable: {0}" -f $_.Exception.Message)
         $fallbackInstalled = Install-CursorViaDownload -ExpectedPath $cursorPath
         if (-not $fallbackInstalled) {
-            Write-Warning "Install Cursor manually from https://cursor.sh/download and rerun this script."
+            Write-Warning "Install Cursor manually from https://cursor.com/download and rerun this script."
         }
         return
     }
@@ -655,7 +1012,7 @@ function Ensure-Cursor {
 
     $fallbackInstalled = Install-CursorViaDownload -ExpectedPath $cursorPath
     if (-not $fallbackInstalled) {
-        Write-Warning "Cursor installation could not be automated. Install Cursor manually from https://cursor.sh/download and rerun this script."
+        Write-Warning "Cursor installation could not be automated. Install Cursor manually from https://cursor.com/download and rerun this script."
     }
 }
 
@@ -759,6 +1116,158 @@ function Invoke-Wsl {
     }
 }
 
+function Test-GcpBillingEnabled {
+    param([string]$ProjectId)
+
+    $command = "gcloud beta billing projects describe $ProjectId --format='value(billingEnabled)'"
+    $result = Invoke-Wsl -Command $command
+    $enabled = $false
+    if ($result.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($result.Output)) {
+        $value = $result.Output.Trim().ToLower()
+        if ($value -eq 'true') {
+            $enabled = $true
+        }
+    }
+    return [PSCustomObject]@{
+        Enabled  = $enabled
+        ExitCode = $result.ExitCode
+        Output   = $result.Output
+    }
+}
+
+function Ensure-GcpBillingEnabled {
+    param([string]$ProjectId)
+
+    $initialStatus = Test-GcpBillingEnabled -ProjectId $ProjectId
+    if ($initialStatus.Enabled) {
+        return $true
+    }
+
+    Write-Warning "Billing is not enabled for project '$ProjectId'."
+    if ($initialStatus.ExitCode -ne 0) {
+        Write-Warning "Unable to determine billing status automatically (exit $($initialStatus.ExitCode)). Enable billing in Google Cloud Console and rerun."
+        Open-UrlInBrowser -Url ("https://console.cloud.google.com/billing/projects?project={0}" -f $ProjectId) -Description "Google Cloud billing project page"
+        return $false
+    }
+
+    $accountsResult = Invoke-Wsl -Command "gcloud beta billing accounts list --format=json"
+    if ($accountsResult.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($accountsResult.Output)) {
+        Write-Warning "Unable to list accessible billing accounts automatically. Enable billing via Google Cloud Console and rerun."
+        Open-UrlInBrowser -Url "https://console.cloud.google.com/billing" -Description "Google Cloud billing console"
+        return $false
+    }
+
+    try {
+        $accounts = $accountsResult.Output | ConvertFrom-Json
+    } catch {
+        Write-Warning "Failed to parse billing accounts information. Enable billing manually and rerun."
+        return $false
+    }
+
+    if (-not $accounts) {
+        Write-Warning "No billing accounts were returned by gcloud. Ensure you have access to an active billing account and rerun."
+        Open-UrlInBrowser -Url "https://console.cloud.google.com/billing/create" -Description "Google Cloud billing account creation page"
+        return $false
+    }
+
+    $openAccounts = @($accounts | Where-Object { $_.open -eq $true })
+    if ($openAccounts.Count -eq 0) {
+        Write-Warning "No open billing accounts are available. Enable or create a billing account in Google Cloud Console and rerun."
+        Open-UrlInBrowser -Url "https://console.cloud.google.com/billing" -Description "Google Cloud billing console"
+        return $false
+    }
+
+    Write-Host "Available billing accounts:" -ForegroundColor Yellow
+    for ($i = 0; $i -lt $openAccounts.Count; $i++) {
+        $acct = $openAccounts[$i]
+        $id = $null
+        if ($acct.billingAccountId) {
+            $id = $acct.billingAccountId
+        } elseif ($acct.name) {
+            $id = ($acct.name -replace '^billingAccounts/', '')
+        }
+        if (-not $id) {
+            $id = "(unknown id)"
+        }
+        $displayName = if ($acct.displayName) { $acct.displayName } else { "(no display name)" }
+        Write-Host ("[{0}] {1} - {2}" -f $i, $id, $displayName)
+    }
+
+    $selectedAccountId = $null
+    if ($openAccounts.Count -eq 1) {
+        $single = $openAccounts[0]
+        $singleId = if ($single.billingAccountId) { $single.billingAccountId } elseif ($single.name) { ($single.name -replace '^billingAccounts/', '') } else { $null }
+        if ($singleId) {
+            $confirm = Read-Host "Link project '$ProjectId' to billing account '$singleId'? [Y/n]"
+            if ([string]::IsNullOrWhiteSpace($confirm) -or $confirm -match '^[Yy]') {
+                $selectedAccountId = $singleId
+            } else {
+                Write-Warning "Skipping automatic billing linkage at user request."
+                Open-UrlInBrowser -Url ("https://console.cloud.google.com/billing/projects?project={0}" -f $ProjectId) -Description "Google Cloud billing project page"
+                return $false
+            }
+        }
+    }
+
+    if (-not $selectedAccountId) {
+        for ($attempt = 1; $attempt -le 3 -and -not $selectedAccountId; $attempt++) {
+            $prompt = "Enter the number of the billing account to link to '$ProjectId'"
+            if ($attempt -lt 3) {
+                $prompt += " (press Enter to skip)"
+            }
+            $selection = Read-Host $prompt
+            if ([string]::IsNullOrWhiteSpace($selection)) {
+                Write-Warning "Skipping automatic billing linkage. Enable billing in Google Cloud Console and rerun."
+                return $false
+            }
+
+            $selection = $selection.Trim()
+            $parsedIndex = 0
+            if ([int]::TryParse($selection, [ref]$parsedIndex)) {
+                if ($parsedIndex -lt 0 -or $parsedIndex -ge $openAccounts.Count) {
+                    Write-Warning "Selection '$selection' is out of range. Try again."
+                    continue
+                }
+                $acct = $openAccounts[$parsedIndex]
+                if ($acct.billingAccountId) {
+                    $selectedAccountId = $acct.billingAccountId
+                } elseif ($acct.name) {
+                    $selectedAccountId = ($acct.name -replace '^billingAccounts/', '')
+                }
+                if (-not $selectedAccountId) {
+                    Write-Warning "Unable to determine billing account ID for selection '$selection'."
+                }
+            } else {
+                $selectedAccountId = ($selection -replace '^billingAccounts/', '')
+            }
+        }
+    }
+
+    if (-not $selectedAccountId) {
+        Write-Warning "Unable to resolve a billing account selection. Enable billing manually and rerun."
+        Open-UrlInBrowser -Url ("https://console.cloud.google.com/billing/projects?project={0}" -f $ProjectId) -Description "Google Cloud billing project page"
+        return $false
+    }
+
+    $linkCommand = "gcloud beta billing projects link $ProjectId --billing-account $selectedAccountId"
+    $linkResult = Invoke-Wsl -Command $linkCommand
+    if ($linkResult.ExitCode -ne 0) {
+        Write-Warning "Failed to link billing account '$selectedAccountId' to project '$ProjectId' (exit $($linkResult.ExitCode)). Resolve billing manually and rerun."
+        Open-UrlInBrowser -Url ("https://console.cloud.google.com/billing/projects?project={0}" -f $ProjectId) -Description "Google Cloud billing project page"
+        return $false
+    }
+
+    $finalStatus = Test-GcpBillingEnabled -ProjectId $ProjectId
+    if ($finalStatus.Enabled) {
+        Write-Host "Linked billing account '$selectedAccountId' to project '$ProjectId'." -ForegroundColor Green
+        return $true
+    }
+
+    Write-Warning "Billing still appears disabled after linking account '$selectedAccountId'. Verify in Google Cloud Console and rerun."
+    Open-UrlInBrowser -Url ("https://console.cloud.google.com/billing/projects?project={0}" -f $ProjectId) -Description "Google Cloud billing project page"
+    return $false
+}
+
 function Normalize-WslUserName {
     param([string]$Name)
     if ([string]::IsNullOrWhiteSpace($Name)) {
@@ -837,6 +1346,8 @@ function Test-NetworkConnectivity {
             'objects.githubusercontent.com',
             'download.docker.com',
             'aka.ms',
+            'cursor.com',
+            'downloads.cursor.com',
             'cursor.sh'
         ),
         [int]$Port = 443
@@ -1215,9 +1726,7 @@ chmod +x /tmp/open-in-windows.sh
         }
 
         Invoke-Wsl -Command "gcloud config set project $projectId" *> $null
-        $billingStatus = Invoke-Wsl -Command "gcloud beta billing projects describe $projectId --format='value(billingEnabled)'"
-        if ($billingStatus.ExitCode -ne 0 -or $billingStatus.Output.Trim().ToLower() -ne 'true') {
-            Write-Warning "Billing is not enabled for project '$projectId'. Enable billing in Google Cloud Console and rerun."
+        if (-not (Ensure-GcpBillingEnabled -ProjectId $projectId)) {
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
         }
 
@@ -1337,7 +1846,7 @@ function Show-PostBootstrapChecklist {
             Write-Warning "Unable to launch Cursor automatically ($_)"
         }
     } else {
-        Write-Warning "Cursor executable not detected. Install it from https://cursor.sh/download, then sign into Codex and Claude Code."
+        Write-Warning "Cursor executable not detected. Install it from https://cursor.com/download, then sign into Codex and Claude Code."
     }
 
     Write-Host "2. In WSL, run 'cd ~/ai-dev-platform && pnpm --filter @ai-dev-platform/web dev' to start coding." -ForegroundColor Yellow
