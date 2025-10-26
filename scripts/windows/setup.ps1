@@ -449,6 +449,37 @@ function Get-CursorInstallPath {
     return $null
 }
 
+function Get-CursorCliPath {
+    param([string]$CursorExePath)
+
+    $candidates = @()
+    if ($CursorExePath) {
+        $installRoot = Split-Path -Path $CursorExePath -Parent
+        if ($installRoot) {
+            $candidates += Join-Path $installRoot "resources\app\bin\cursor.exe"
+            $candidates += Join-Path $installRoot "resources\app\bin\cursor.cmd"
+            $candidates += Join-Path $installRoot "resources\app\bin\cursor"
+            $candidates += Join-Path $installRoot "bin\cursor.exe"
+            $candidates += Join-Path $installRoot "bin\cursor.cmd"
+        }
+    }
+
+    if ($env:LOCALAPPDATA) {
+        $candidates += Join-Path $env:LOCALAPPDATA "Cursor\bin\cursor.exe"
+        $candidates += Join-Path $env:LOCALAPPDATA "Cursor\bin\cursor.cmd"
+    }
+
+    foreach ($candidate in ($candidates | Where-Object { $_ })) {
+        try {
+            if (Test-Path $candidate) {
+                return $candidate
+            }
+        } catch { }
+    }
+
+    return $CursorExePath
+}
+
 function Get-CursorInstallerDownloadInfo {
     $headers = @{
         "User-Agent" = "ai-dev-platform-bootstrap"
@@ -1030,6 +1061,13 @@ function Ensure-CursorExtensions {
         return
     }
 
+    $cliPath = Get-CursorCliPath -CursorExePath $cursorPath
+    if (-not $cliPath -or -not (Test-Path $cliPath)) {
+        Write-Warning "Cursor command-line interface not found. Install extensions manually via the Cursor marketplace."
+        Write-CursorLog "Cursor CLI not found; extension installation skipped."
+        return
+    }
+
     $targets = @(
         [pscustomobject]@{ Id = "openai.chatgpt"; Label = "OpenAI Codex" },
         [pscustomobject]@{ Id = "anthropic.claude-code"; Label = "Claude Code" }
@@ -1037,7 +1075,7 @@ function Ensure-CursorExtensions {
 
     $installedExtensions = @()
     try {
-        $rawList = & "$cursorPath" --list-extensions 2>$null
+        $rawList = & "$cliPath" --list-extensions 2>$null
         if ($rawList) {
             $installedExtensions = $rawList -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
         }
@@ -1064,12 +1102,23 @@ function Ensure-CursorExtensions {
         Write-Host ("Installing Cursor extension {0} ({1})..." -f $label, $extensionId)
         Write-CursorLog ("Installing Cursor extension {0}." -f $extensionId)
         try {
-            & "$cursorPath" --install-extension $extensionId --force *> $null
+            & "$cliPath" --install-extension $extensionId --force *> $null
             $exitCode = $LASTEXITCODE
             if ($exitCode -eq 0) {
-                Write-Host ("Cursor extension {0} installed successfully." -f $label)
-                Write-CursorLog ("Cursor extension {0} installed successfully." -f $extensionId)
-                $installedExtensions += $extensionId
+                Start-Sleep -Seconds 1
+                try {
+                    $verifyList = & "$cliPath" --list-extensions 2>$null
+                    if ($verifyList) {
+                        $installedExtensions = $verifyList -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+                    }
+                } catch { }
+                if ($installedExtensions -and ($installedExtensions | ForEach-Object { $_.Trim().ToLowerInvariant() }) -contains $extensionId) {
+                    Write-Host ("Cursor extension {0} installed successfully." -f $label)
+                    Write-CursorLog ("Cursor extension {0} installed successfully." -f $extensionId)
+                } else {
+                    Write-Warning ("Cursor extension {0} installation reported success but was not detected. Install it manually if it remains missing." -f $label)
+                    Write-CursorLog ("Cursor extension {0} installation reported success but verification failed." -f $extensionId)
+                }
             } else {
                 Write-Warning ("Failed to install Cursor extension {0} (exit {1}). Install it manually via the Cursor marketplace." -f $label, $exitCode)
                 Write-CursorLog ("Cursor extension {0} installation failed with exit code {1}." -f $extensionId, $exitCode)
@@ -1680,6 +1729,13 @@ fi
 escape_pwsh() {
   printf "%s" "$1" | sed "s/'/''/g"
 }
+
+# Try wslview if available (WSL-friendly browser launcher)
+if command -v wslview >/dev/null 2>&1; then
+  if wslview "$url" >/dev/null 2>&1; then
+    exit 0
+  fi
+fi
 
 escaped="$(escape_pwsh "$url")"
 powershell.exe -NoProfile -Command "Start-Process '$escaped'" >/dev/null 2>&1 && exit 0
