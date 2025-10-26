@@ -530,7 +530,7 @@ function Get-CursorInstallerDownloadInfo {
         return $savedMetadata
     }
 
-    foreach ($fallback in Get-CursorStaticDownloadFallbacks()) {
+    foreach ($fallback in (Get-CursorStaticDownloadFallbacks)) {
         if (-not $fallback -or -not $fallback.DownloadUrl) {
             continue
         }
