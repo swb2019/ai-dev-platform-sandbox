@@ -154,8 +154,6 @@ ensure_gcs_bucket() {
 }
 
 
-}
-
 ensure_binary_authorization_attestor() {
   local var_name="$1" env_label="$2"
   if [[ -z "$var_name" || -z "$env_label" ]]; then

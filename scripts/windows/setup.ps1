@@ -1361,9 +1361,24 @@ function Invoke-Wsl {
     $ErrorActionPreference = 'Continue'
     $outputLines = New-Object System.Collections.Generic.List[string]
     & wsl.exe @args 2>&1 | ForEach-Object {
-        $line = [string]$_
-        $outputLines.Add($line)
-        Write-Host $line
+        $message = $_
+        if ($message -is [System.Management.Automation.ErrorRecord]) {
+            $err = [System.Management.Automation.ErrorRecord]$message
+            if ($err.Exception -and -not [string]::IsNullOrWhiteSpace($err.Exception.Message)) {
+                $message = $err.Exception.Message
+            } elseif (-not [string]::IsNullOrWhiteSpace($err.ToString())) {
+                $message = $err.ToString()
+            } else {
+                $message = ($err | Out-String).TrimEnd()
+            }
+        } else {
+            $message = [string]$message
+        }
+        if ($null -eq $message) {
+            $message = ""
+        }
+        $outputLines.Add($message)
+        Write-Host $message
     }
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = $previousErrorAction
@@ -1880,6 +1895,7 @@ function Ensure-CloudBootstrap {
     try {
         Write-Section "Verifying GitHub repository access"
         $relayScript = @'
+# shell script that relays URLs from WSL to the Windows default browser without relying on wslview (which can emit noisy registry errors on older setups)
 cat <<'EOFSCRIPT' >/tmp/open-in-windows.sh
 #!/bin/bash
 url="$1"
@@ -1893,13 +1909,6 @@ fi
 escape_pwsh() {
   printf "%s" "$1" | sed "s/'/''/g"
 }
-
-# Try wslview if available (WSL-friendly browser launcher)
-if command -v wslview >/dev/null 2>&1; then
-  if wslview "$url" >/dev/null 2>&1; then
-    exit 0
-  fi
-fi
 
 escaped="$(escape_pwsh "$url")"
 powershell.exe -NoProfile -Command "Start-Process '$escaped'" >/dev/null 2>&1 && exit 0
