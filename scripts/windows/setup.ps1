@@ -46,10 +46,14 @@ function Write-Section {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
-function Ensure-Administrator {
+function Test-IsAdministrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
+    return $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
+}
+
+function Ensure-Administrator {
+    if (-not (Test-IsAdministrator)) {
         throw "Run this script from an elevated PowerShell session (Run as Administrator)."
     }
 }
@@ -1165,6 +1169,28 @@ function Ensure-Cursor {
     }
 }
 
+function Write-CursorExtensionManualGuidance {
+    param(
+        [string]$CliPath,
+        [string[]]$Extensions
+    )
+    if (-not $Extensions -or $Extensions.Count -eq 0) {
+        return
+    }
+    $escapedCli = if ($CliPath) { $CliPath.Replace('"','""') } else { $null }
+    Write-Warning "Automatic Cursor extension installation did not complete for the following IDs: $($Extensions -join ', ')"
+    Write-CursorLog ("Manual installation required for Cursor extensions: {0}" -f ($Extensions -join ', '))
+    if ($escapedCli) {
+        Write-Host "From a standard (non-administrator) PowerShell prompt, run:" -ForegroundColor Yellow
+        foreach ($ext in $Extensions) {
+            Write-Host ("  & `"{0}`" --install-extension {1} --force" -f $escapedCli, $ext) -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "Open Cursor, then install the missing extensions from the marketplace: $($Extensions -join ', ')." -ForegroundColor Yellow
+    }
+    Write-Host "After installation, relaunch Cursor (not elevated) and sign into Codex and Claude Code via the command palette." -ForegroundColor Yellow
+}
+
 function Ensure-CursorExtensions {
     Write-Section "Ensuring Cursor AI extensions are installed"
     $cursorPath = Get-CursorInstallPath
@@ -1197,6 +1223,7 @@ function Ensure-CursorExtensions {
         $installedExtensions = @()
     }
 
+    $missingExtensions = @()
     foreach ($target in $targets) {
         $extensionId = $target.Id
         $label = $target.Label
@@ -1231,15 +1258,23 @@ function Ensure-CursorExtensions {
                 } else {
                     Write-Warning ("Cursor extension {0} installation reported success but was not detected. Install it manually if it remains missing." -f $label)
                     Write-CursorLog ("Cursor extension {0} installation reported success but verification failed." -f $extensionId)
+                    $missingExtensions += $extensionId
                 }
             } else {
                 Write-Warning ("Failed to install Cursor extension {0} (exit {1}). Install it manually via the Cursor marketplace." -f $label, $exitCode)
                 Write-CursorLog ("Cursor extension {0} installation failed with exit code {1}." -f $extensionId, $exitCode)
+                $missingExtensions += $extensionId
             }
         } catch {
             Write-Warning ("Failed to install Cursor extension {0} ({1}). Install it manually via the Cursor marketplace." -f $label, $_.Exception.Message)
             Write-CursorLog ("Cursor extension {0} installation error: {1}" -f $extensionId, $_.Exception.Message)
+            $missingExtensions += $extensionId
         }
+    }
+
+    if ($missingExtensions.Count -gt 0) {
+        $uniqueMissing = $missingExtensions | Sort-Object -Unique
+        Write-CursorExtensionManualGuidance -CliPath $cliPath -Extensions $uniqueMissing
     }
 }
 
@@ -2086,14 +2121,17 @@ function Show-PostBootstrapChecklist {
         Write-Host "   - GitHub account (prompted on first launch)." -ForegroundColor Yellow
         Write-Host "   - Command Palette → 'Codex: Sign In'." -ForegroundColor Yellow
         Write-Host "   - Command Palette → 'Claude Code: Sign In'." -ForegroundColor Yellow
-
-        try {
-            $launchPrompt = Read-Host "Open Cursor now to start sign-in? [Y/n]"
-            if ([string]::IsNullOrWhiteSpace($launchPrompt) -or $launchPrompt -match '^[Yy]') {
-                Start-Process -FilePath $cursorPath | Out-Null
+        if (Test-IsAdministrator) {
+            Write-Host "   (Launch Cursor from the Start Menu after closing this administrator PowerShell window to avoid running it elevated.)" -ForegroundColor Yellow
+        } else {
+            try {
+                $launchPrompt = Read-Host "Open Cursor now to start sign-in? [Y/n]"
+                if ([string]::IsNullOrWhiteSpace($launchPrompt) -or $launchPrompt -match '^[Yy]') {
+                    Start-Process -FilePath $cursorPath | Out-Null
+                }
+            } catch {
+                Write-Warning "Unable to launch Cursor automatically ($_)"
             }
-        } catch {
-            Write-Warning "Unable to launch Cursor automatically ($_)"
         }
     } else {
         Write-Warning "Cursor executable not detected. Install it from https://cursor.com/download, then sign into Codex and Claude Code."

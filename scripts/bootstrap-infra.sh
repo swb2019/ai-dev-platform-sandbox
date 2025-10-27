@@ -111,50 +111,49 @@ ensure_gcs_bucket() {
 
     echo "Creating GCS bucket gs://$bucket_name..."
     local output
-    local pap_supported=1
-    if ! output=$(gcloud storage buckets create "gs://$bucket_name" \
-      --project "$GCP_PROJECT_ID" \
-      --location "$GCP_REGION" \
-      --uniform-bucket-level-access \
-      --public-access-prevention=enforced 2>&1); then
-      if echo "$output" | grep -Eq "unrecognized arguments|ignored explicit argument"; then
-        pap_supported=0
-        echo "gcloud version does not support --public-access-prevention flag; retrying without it." >&2
-        if ! output=$(gcloud storage buckets create "gs://$bucket_name" \
-          --project "$GCP_PROJECT_ID" \
-          --location "$GCP_REGION" \
-          --uniform-bucket-level-access 2>&1); then
-          if echo "$output" | grep -q "The requested bucket name is not available"; then
-            echo "Bucket name '$bucket_name' is not available." >&2
-            prompt_for TERRAFORM_STATE_BUCKET "Enter Terraform state bucket name" "${TERRAFORM_STATE_BUCKET:-}"
-            write_state
-            bucket_name="$TERRAFORM_STATE_BUCKET"
-            continue
-          fi
-          echo "$output" >&2
-          return 1
-        fi
-      else
-        if echo "$output" | grep -q "The requested bucket name is not available"; then
-          echo "Bucket name '$bucket_name' is not available." >&2
-          prompt_for TERRAFORM_STATE_BUCKET "Enter Terraform state bucket name" "${TERRAFORM_STATE_BUCKET:-}"
-          write_state
-          bucket_name="$TERRAFORM_STATE_BUCKET"
-          continue
-        fi
-        echo "$output" >&2
-        return 1
-      fi
+    local create_args=("gs://$bucket_name" --project "$GCP_PROJECT_ID" --location "$GCP_REGION" --uniform-bucket-level-access)
+    local -a pap_update_candidates=()
+    if gcloud storage buckets update --help 2>/dev/null | grep -q -- "--pap"; then
+      pap_update_candidates+=(--pap)
+    fi
+    if gcloud storage buckets update --help 2>/dev/null | grep -q -- "--public-access-prevention"; then
+      pap_update_candidates+=(--public-access-prevention=enforced)
     fi
 
-    if ! gcloud storage buckets update "gs://$bucket_name" --pap >/dev/null 2>&1; then
-      gcloud storage buckets update "gs://$bucket_name" --public-access-prevention=enforced >/dev/null 2>&1 || true
+    if ! output=$(gcloud storage buckets create "${create_args[@]}" 2>&1); then
+      if echo "$output" | grep -q "The requested bucket name is not available"; then
+        echo "Bucket name '$bucket_name' is not available." >&2
+        prompt_for TERRAFORM_STATE_BUCKET "Enter Terraform state bucket name" "${TERRAFORM_STATE_BUCKET:-}"
+        write_state
+        bucket_name="$TERRAFORM_STATE_BUCKET"
+        continue
+      fi
+      echo "$output" >&2
+      return 1
+    fi
+
+    echo "Enforcing public access prevention on gs://$bucket_name..."
+    local pap_applied=0
+    if (( ${#pap_update_candidates[@]} > 0 )); then
+      for candidate in "${pap_update_candidates[@]}"; do
+        if gcloud storage buckets update "gs://$bucket_name" "$candidate" >/dev/null 2>&1; then
+          pap_applied=1
+          break
+        fi
+      done
+    fi
+    if (( pap_applied == 0 )); then
+      gcloud storage buckets update "gs://$bucket_name" --pap >/dev/null 2>&1 || \
+        gcloud storage buckets update "gs://$bucket_name" --public-access-prevention=enforced >/dev/null 2>&1 || true
     fi
 
     echo "Enabling versioning on gs://$bucket_name..."
     gcloud storage buckets update "gs://$bucket_name" --versioning
     return 0
   done
+}
+
+
 }
 
 ensure_binary_authorization_attestor() {

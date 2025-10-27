@@ -142,15 +142,20 @@ Before you start, make sure you can provide the following:
    - Launches `gh auth login --web` inside both Windows and WSL contexts (if needed), refreshes the token scopes (`repo`, `workflow`, `admin:org`), and verifies the signed-in user has admin rights on the repository. The helper relays the OAuth URL to your Windows browser automatically; if it does not open, copy the printed URL manually and paste it into your browser.
    - Automatically creates the GitHub repository (via `gh repo create`) if it does not yet exist or is empty, then continues.
    - Offers to configure Google Cloud (interactive `gcloud auth login`, `gcloud auth application-default login`, and `./scripts/bootstrap-infra.sh`) and to update GitHub environments automatically. Browser windows open on Windows; if the browser is blocked, copy the displayed URL manually. When the script reaches the Infisical step it first asks for an existing `INFISICAL_TOKEN` and only generates one (with a cost warning) if you explicitly opt in.
-   - Offers to launch Cursor at the end so you can immediately sign into Codex and Claude Code.
+   - Reminds you to launch Cursor from a standard (non-admin) session at the end so you can sign into Codex and Claude Code without inheriting elevated privileges.
 
    You can supply overrides such as `-RepoSlug your-user/ai-dev-platform`, `-Branch feature`, `-WslUserName devuser`, `-DockerInstallerPath C:\Installers\DockerDesktopInstaller.exe`, or `-CursorInstallerPath C:\Installers\CursorSetup.exe`. The Cursor override accepts a single installer, a directory that contains `CursorSetup*.exe`, or a pre-downloaded `.zip` archive. When prompted for optional tokens (`GH_TOKEN`, `INFISICAL_TOKEN`), press <kbd>Enter</kbd> to skip unless you have a PAT/Infisical secret ready. Re-running the helper is safe; it resumes from checkpoints stored under `~/.cache/ai-dev-platform/setup-state`.
 
 5. **Sign into Cursor assistants (one time):**
-   - Launch Cursor (installed to `%LOCALAPPDATA%\Programs\Cursor\Cursor.exe`).
+   - Launch Cursor from the Start menu (installed to `%LOCALAPPDATA%\Programs\Cursor\Cursor.exe`) after closing the elevated bootstrap PowerShell window so it runs with normal user privileges.
    - Sign into GitHub when prompted.
    - Press `Ctrl+Shift+P` → “Codex: Sign In” and complete the browser flow (requires accepting the GitHub OAuth prompt).
    - Repeat for “Claude Code: Sign In” (Claude Code also needs GitHub OAuth approval).
+   - The bootstrap attempts to pre-install the Codex and Claude Code extensions via the Cursor CLI. If either extension is missing, open a regular PowerShell window and run:
+     ```powershell
+     & "$env:LOCALAPPDATA\Programs\Cursor\resources\app\bin\cursor.cmd" --install-extension openai.chatgpt --force
+     & "$env:LOCALAPPDATA\Programs\Cursor\resources\app\bin\cursor.cmd" --install-extension anthropic.claude-code --force
+     ```
 
 6. **Verify the WSL workspace:**
    ```bash
