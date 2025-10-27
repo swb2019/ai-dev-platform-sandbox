@@ -709,9 +709,32 @@ function Test-WslSudo {
     return $false
 }
 
-function Ensure-WslInteropEnabled {
+function Test-WslInteropActive {
     $status = Invoke-Wsl -Command "if [ -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then cat /proc/sys/fs/binfmt_misc/WSLInterop 2>/dev/null; else echo missing; fi"
-    if ($status.ExitCode -eq 0 -and $status.Output.Trim() -eq "1") {
+    if ($status.ExitCode -eq 0) {
+        $output = ($status.Output | Out-String).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($output)) {
+            if ($output -match '(?im)^\s*1\s*$' -or $output -match '(?im)^enabled') {
+                return $true
+            }
+        }
+    }
+    return $false
+}
+
+function Ensure-WslResourceConfig {
+    $wslConfigPath = Join-Path $env:USERPROFILE ".wslconfig"
+    if (-not (Test-Path $wslConfigPath)) {
+        $defaultConfig = "[wsl2]`nmemory=8GB`nprocessors=4`nswap=0`n"
+        Write-Host "Creating default .wslconfig to allocate 8GB memory for WSL." -ForegroundColor Yellow
+        $defaultConfig | Set-Content -Path $wslConfigPath -Encoding UTF8
+    }
+}
+
+
+
+function Ensure-WslInteropEnabled {
+    if (Test-WslInteropActive) {
         return
     }
 
@@ -744,11 +767,7 @@ print('CHANGED' if changed else 'UNCHANGED')
 PY
 "@
     $configResult = Invoke-Wsl -Command $configScript -AsRoot
-    $needsRestart = $false
     if ($configResult.ExitCode -eq 0 -and ($configResult.Output.Trim().Split("`n") -contains 'CHANGED')) {
-        $needsRestart = $true
-    }
-    if ($needsRestart) {
         Write-Host "Restarting WSL distribution '$DistroName' to apply configuration changes..." -ForegroundColor Yellow
         wsl.exe --terminate $DistroName 2>$null | Out-Null
         Start-Sleep -Seconds 2
@@ -764,15 +783,9 @@ if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
   echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register
 fi
 echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop
-if [ -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
-  cat /proc/sys/fs/binfmt_misc/WSLInterop
-else
-  echo failed
-  exit 14
-fi
 "@
-    $enableResult = Invoke-Wsl -Command $enableScript -AsRoot
-    if ($enableResult.ExitCode -eq 0 -and $enableResult.Output.Trim().Split("`n")[-1] -eq "1") {
+    $null = Invoke-Wsl -Command $enableScript -AsRoot
+    if (Test-WslInteropActive) {
         Write-Host "WSL interoperability re-enabled." -ForegroundColor Green
         return
     }
@@ -780,15 +793,10 @@ fi
     Write-Section "WSL interoperability is still disabled after automated remediation"
     Write-Host "Attempting elevated WSL interop remediation..." -ForegroundColor Yellow
     $elevatedCommand = "modprobe binfmt_misc 2>/dev/null || true; mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc 2>/dev/null || true; if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register; fi; echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop"
-    $escapedElevatedCommand = $elevatedCommand.Replace('"','"')
-    $null = & wsl.exe -d $DistroName --user root -- sh -lc "$escapedElevatedCommand"
-    $elevatedExit = $LASTEXITCODE
-    if ($elevatedExit -eq 0) {
-        $finalCheck = Invoke-Wsl -Command "if [ -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then cat /proc/sys/fs/binfmt_misc/WSLInterop 2>/dev/null; else echo missing; fi"
-        if ($finalCheck.ExitCode -eq 0 -and $finalCheck.Output.Trim() -eq "1") {
-            Write-Host "WSL interoperability re-enabled via elevated command." -ForegroundColor Green
-            return
-        }
+    & wsl.exe -d $DistroName --user root -- sh -lc $elevatedCommand | Out-Null
+    if (Test-WslInteropActive) {
+        Write-Host "WSL interoperability re-enabled via elevated command." -ForegroundColor Green
+        return
     }
 
     Write-Warning "Automatic remediation failed."
@@ -801,6 +809,7 @@ After enabling interoperability, rerun this script.
     Write-Warning $manualInstructions
     throw "WSL interoperability could not be re-enabled automatically."
 }
+
 
 
 function Invoke-RobustDownload {
@@ -1644,6 +1653,17 @@ function Install-DockerDesktopFromPath {
     return $proc.ExitCode
 }
 
+function Restart-DockerDesktopWsl {
+    param([string]$DockerExe)
+    Write-Host "Restarting Docker Desktop WSL distributions..." -ForegroundColor Yellow
+    & wsl.exe --terminate docker-desktop 2>$null | Out-Null
+    & wsl.exe --terminate docker-desktop-data 2>$null | Out-Null
+    Start-Sleep -Seconds 3
+    if (-not (Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue)) {
+        try { Start-Process -FilePath $DockerExe | Out-Null } catch { }
+    }
+}
+
 function Ensure-DockerDesktop {
     Write-Section "Preparing Docker Desktop"
     $dockerExe = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
@@ -1749,6 +1769,7 @@ function Ensure-DockerDesktop {
 
     Write-Host "Waiting for Docker daemon inside WSL..."
     $attempts = 0
+    $restartAttempts = 0
     while ($attempts -lt 60) {
         $result = Invoke-Wsl -Command "docker info >/dev/null 2>&1"
         if ($result.ExitCode -eq 0) {
@@ -1756,6 +1777,10 @@ function Ensure-DockerDesktop {
         }
         Start-Sleep -Seconds 5
         $attempts++
+        if (($attempts %% 12 -eq 0) -and ($restartAttempts -lt 3)) {
+            Restart-DockerDesktopWsl -DockerExe $dockerExe
+            $restartAttempts++
+        }
     }
     throw "Docker Desktop did not become ready in time. Ensure it is running and WSL integration is enabled for '$DistroName', then rerun this script."
 }
@@ -2121,6 +2146,7 @@ function Prompt-OptionalToken {
 Write-Section "Windows bootstrap for AI Dev Platform"
 Test-NetworkConnectivity
 Ensure-Administrator
+Ensure-WslResourceConfig
 Enable-WindowsFeatures
 Ensure-WslDistribution -Name $DistroName
 Ensure-WslDefault -Name $DistroName
