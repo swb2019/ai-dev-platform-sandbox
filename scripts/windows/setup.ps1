@@ -908,7 +908,9 @@ function Open-UrlInBrowser {
         Write-CursorLog ("Start-Process launch for {0} failed: {1}" -f $target, $_.Exception.Message)
     }
     try {
-        Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "start", "", $target) -WindowStyle Hidden | Out-Null
+        $quotedTarget = '"' + $target + '"'
+        Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "start", "", $quotedTarget) -WindowStyle Hidden | Out-Null
+        return
     } catch {
         Write-Warning ("Unable to open {0} automatically ({1})." -f $message, $_.Exception.Message)
     }
