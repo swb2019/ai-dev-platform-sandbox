@@ -12,6 +12,7 @@ Param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+$script:RepoRoot = Split-Path -Path (Split-Path -Path $PSCommandPath -Parent) -Parent
 $script:CursorInstallerContextReady = $false
 $script:CursorInstallerCacheDir = $null
 $script:CursorInstallerLogFile = $null
@@ -1191,6 +1192,221 @@ function Write-CursorExtensionManualGuidance {
     Write-Host "After installation, relaunch Cursor (not elevated) and sign into Codex and Claude Code via the command palette." -ForegroundColor Yellow
 }
 
+function Get-CursorExtensionRoot {
+    $candidates = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        $candidates += (Join-Path $env:USERPROFILE ".cursor\extensions")
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {
+        $candidates += (Join-Path $env:APPDATA "Cursor\User\extensions")
+    }
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path $candidate)) {
+            return $candidate
+        }
+    }
+    $fallback = $candidates | Where-Object { $_ } | Select-Object -First 1
+    if (-not $fallback) {
+        throw "Unable to determine Cursor extension directory."
+    }
+    if (-not (Test-Path $fallback)) {
+        New-Item -ItemType Directory -Path $fallback -Force | Out-Null
+    }
+    return $fallback
+}
+
+function Get-CursorExtensionDirectory {
+    param([string]$ExtensionId)
+    $root = Get-CursorExtensionRoot
+    if (-not (Test-Path $root)) {
+        return $null
+    }
+    $match = Get-ChildItem -Path $root -Directory -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -like ("{0}-*" -f $ExtensionId)
+    } | Sort-Object Name -Descending | Select-Object -First 1
+    if ($match) {
+        return $match.FullName
+    }
+    return $null
+}
+
+function Get-CursorVsixPath {
+    param([string]$ExtensionId)
+    if (-not $script:RepoRoot) {
+        return $null
+    }
+    $map = @{
+        "openai.chatgpt"        = Join-Path $script:RepoRoot "tmp\cursor-tools\openai-chatgpt.vsix"
+        "anthropic.claude-code" = Join-Path $script:RepoRoot "tmp\cursor-tools\anthropic-claude-code.vsix"
+    }
+    if ($map.ContainsKey($ExtensionId)) {
+        $path = $map[$ExtensionId]
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            return $null
+        }
+        if (Test-Path $path) {
+            return $path
+        }
+    }
+    return $null
+}
+
+function Get-CursorInstalledExtensionSet {
+    param([string]$CliPath)
+    $set = New-Object System.Collections.Generic.HashSet[string]
+    if (-not [string]::IsNullOrWhiteSpace($CliPath) -and (Test-Path $CliPath)) {
+        try {
+            $rawList = & "$CliPath" --list-extensions 2>$null
+            if ($rawList) {
+                $rawList -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object {
+                    $null = $set.Add($_.Trim().ToLowerInvariant())
+                }
+            }
+        } catch {
+            Write-CursorLog ("Failed to list existing Cursor extensions: {0}" -f $_.Exception.Message)
+        }
+    }
+    return $set
+}
+
+function Test-CursorExtensionInstalled {
+    param(
+        [string]$ExtensionId,
+        [System.Collections.Generic.HashSet[string]]$KnownSet
+    )
+    if ($KnownSet -and $KnownSet.Contains($ExtensionId.ToLowerInvariant())) {
+        return $true
+    }
+    $path = Get-CursorExtensionDirectory -ExtensionId $ExtensionId
+    return -not [string]::IsNullOrWhiteSpace($path)
+}
+
+function Install-CursorExtensionViaCli {
+    param(
+        [string]$CliPath,
+        [string]$ExtensionArgument,
+        [string]$LogLabel
+    )
+    if (-not [string]::IsNullOrWhiteSpace($CliPath) -and (Test-Path $CliPath)) {
+        try {
+            & "$CliPath" --install-extension $ExtensionArgument --force *> $null
+            if ($LASTEXITCODE -eq 0) {
+                Start-Sleep -Seconds 1
+                return $true
+            }
+            Write-CursorLog ("Cursor CLI install for {0} via argument {1} failed with exit code {2}." -f $LogLabel, $ExtensionArgument, $LASTEXITCODE)
+        } catch {
+            Write-CursorLog ("Cursor CLI install for {0} via argument {1} threw: {2}" -f $LogLabel, $ExtensionArgument, $_.Exception.Message)
+        }
+    }
+    return $false
+}
+
+function Ensure-ZipArchiveAssembly {
+    $loaded = [AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.FullName -like "System.IO.Compression.FileSystem,*" }
+    if ($loaded) {
+        return
+    }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+}
+
+function Install-CursorExtensionFromVsix {
+    param([string]$VsixPath)
+    if (-not (Test-Path $VsixPath)) {
+        return $false
+    }
+    try {
+        Ensure-ZipArchiveAssembly
+    } catch {
+        Write-CursorLog ("Unable to load compression assembly for VSIX install: {0}" -f $_.Exception.Message)
+        return $false
+    }
+    $archive = $null
+    try {
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($VsixPath)
+    } catch {
+        Write-CursorLog ("Unable to open VSIX {0}: {1}" -f $VsixPath, $_.Exception.Message)
+        return $false
+    }
+    try {
+        $manifestEntry = $archive.GetEntry("extension.vsixmanifest")
+        if (-not $manifestEntry) {
+            Write-CursorLog ("VSIX {0} missing extension.vsixmanifest." -f $VsixPath)
+            return $false
+        }
+        $manifestContent = ""
+        $reader = New-Object System.IO.StreamReader($manifestEntry.Open())
+        try {
+            $manifestContent = $reader.ReadToEnd()
+        } finally {
+            $reader.Dispose()
+        }
+        if ([string]::IsNullOrWhiteSpace($manifestContent)) {
+            Write-CursorLog ("VSIX {0} manifest was empty." -f $VsixPath)
+            return $false
+        }
+        $manifestXml = [xml]$manifestContent
+        $identity = $manifestXml.PackageManifest.Metadata.Identity
+        if (-not $identity -or -not $identity.Publisher -or -not $identity.Id -or -not $identity.Version) {
+            Write-CursorLog ("VSIX {0} manifest missing identity details." -f $VsixPath)
+            return $false
+        }
+        $publisher = $identity.Publisher
+        $id = $identity.Id
+        $version = $identity.Version
+        $extensionRoot = Get-CursorExtensionRoot
+        $targetDir = Join-Path $extensionRoot ("{0}.{1}-{2}" -f $publisher, $id, $version)
+        if (Test-Path $targetDir) {
+            try {
+                Remove-Item -Path $targetDir -Recurse -Force -ErrorAction Stop
+            } catch {
+                Write-CursorLog ("Failed to remove existing extension directory {0}: {1}" -f $targetDir, $_.Exception.Message)
+                return $false
+            }
+        }
+        foreach ($entry in $archive.Entries) {
+            if (-not $entry.FullName.StartsWith("extension/")) {
+                continue
+            }
+            $relative = $entry.FullName.Substring(10)
+            if ([string]::IsNullOrWhiteSpace($relative)) {
+                continue
+            }
+            $relativePath = $relative -replace '/', [IO.Path]::DirectorySeparatorChar
+            $destinationPath = Join-Path $targetDir $relativePath
+            if ($entry.FullName.EndsWith("/")) {
+                if (-not (Test-Path $destinationPath)) {
+                    New-Item -ItemType Directory -Path $destinationPath -Force | Out-Null
+                }
+                continue
+            }
+            $directory = Split-Path -Path $destinationPath -Parent
+            if ($directory -and -not (Test-Path $directory)) {
+                New-Item -ItemType Directory -Path $directory -Force | Out-Null
+            }
+            $entryStream = $entry.Open()
+            try {
+                $fileStream = [System.IO.File]::Create($destinationPath)
+                try {
+                    $entryStream.CopyTo($fileStream)
+                } finally {
+                    $fileStream.Dispose()
+                }
+            } finally {
+                $entryStream.Dispose()
+            }
+        }
+        return $true
+    } catch {
+        Write-CursorLog ("Failed to extract VSIX {0}: {1}" -f $VsixPath, $_.Exception.Message)
+        return $false
+    } finally {
+        if ($archive) {
+            $archive.Dispose()
+        }
+    }
+}
+
 function Ensure-CursorExtensions {
     Write-Section "Ensuring Cursor AI extensions are installed"
     $cursorPath = Get-CursorInstallPath
@@ -1208,66 +1424,71 @@ function Ensure-CursorExtensions {
     }
 
     $targets = @(
-        [pscustomobject]@{ Id = "openai.chatgpt"; Label = "OpenAI Codex" },
-        [pscustomobject]@{ Id = "anthropic.claude-code"; Label = "Claude Code" }
+        [pscustomobject]@{
+            Id    = "openai.chatgpt"
+            Label = "OpenAI Codex"
+        },
+        [pscustomobject]@{
+            Id    = "anthropic.claude-code"
+            Label = "Claude Code"
+        }
     )
 
-    $installedExtensions = @()
-    try {
-        $rawList = & "$cliPath" --list-extensions 2>$null
-        if ($rawList) {
-            $installedExtensions = $rawList -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-        }
-    } catch {
-        Write-CursorLog ("Failed to list existing Cursor extensions: {0}" -f $_.Exception.Message)
-        $installedExtensions = @()
-    }
+    $installedSet = Get-CursorInstalledExtensionSet -CliPath $cliPath
 
     $missingExtensions = @()
     foreach ($target in $targets) {
         $extensionId = $target.Id
         $label = $target.Label
-        $alreadyInstalled = $false
-        foreach ($entry in $installedExtensions) {
-            if ($entry.Trim().ToLowerInvariant() -eq $extensionId) {
-                $alreadyInstalled = $true
-                break
-            }
-        }
-        if ($alreadyInstalled) {
+
+        if (Test-CursorExtensionInstalled -ExtensionId $extensionId -KnownSet $installedSet) {
             Write-CursorLog ("Cursor extension {0} is already installed." -f $extensionId)
             continue
         }
 
         Write-Host ("Installing Cursor extension {0} ({1})..." -f $label, $extensionId)
         Write-CursorLog ("Installing Cursor extension {0}." -f $extensionId)
-        try {
-            & "$cliPath" --install-extension $extensionId --force *> $null
-            $exitCode = $LASTEXITCODE
-            if ($exitCode -eq 0) {
-                Start-Sleep -Seconds 1
-                try {
-                    $verifyList = & "$cliPath" --list-extensions 2>$null
-                    if ($verifyList) {
-                        $installedExtensions = $verifyList -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        $installed = $false
+
+        if (Install-CursorExtensionViaCli -CliPath $cliPath -ExtensionArgument $extensionId -LogLabel $extensionId) {
+            $installedSet = Get-CursorInstalledExtensionSet -CliPath $cliPath
+            if (Test-CursorExtensionInstalled -ExtensionId $extensionId -KnownSet $installedSet) {
+                Write-Host ("Cursor extension {0} installed successfully." -f $label)
+                Write-CursorLog ("Cursor extension {0} installed successfully via marketplace." -f $extensionId)
+                $installed = $true
+            }
+        }
+
+        if (-not $installed) {
+            $vsixPath = Get-CursorVsixPath -ExtensionId $extensionId
+            if ($vsixPath) {
+                Write-Host ("Installing Cursor extension {0} from cached VSIX..." -f $label)
+                Write-CursorLog ("Attempting VSIX installation for Cursor extension {0} from {1}." -f $extensionId, $vsixPath)
+                if (Install-CursorExtensionViaCli -CliPath $cliPath -ExtensionArgument $vsixPath -LogLabel "$extensionId (VSIX)") {
+                    $installedSet = Get-CursorInstalledExtensionSet -CliPath $cliPath
+                    if (Test-CursorExtensionInstalled -ExtensionId $extensionId -KnownSet $installedSet) {
+                        Write-Host ("Cursor extension {0} installed successfully from VSIX." -f $label)
+                        Write-CursorLog ("Cursor extension {0} installed successfully via VSIX CLI." -f $extensionId)
+                        $installed = $true
                     }
-                } catch { }
-                if ($installedExtensions -and ($installedExtensions | ForEach-Object { $_.Trim().ToLowerInvariant() }) -contains $extensionId) {
-                    Write-Host ("Cursor extension {0} installed successfully." -f $label)
-                    Write-CursorLog ("Cursor extension {0} installed successfully." -f $extensionId)
-                } else {
-                    Write-Warning ("Cursor extension {0} installation reported success but was not detected. Install it manually if it remains missing." -f $label)
-                    Write-CursorLog ("Cursor extension {0} installation reported success but verification failed." -f $extensionId)
-                    $missingExtensions += $extensionId
+                }
+                if (-not $installed -and (Install-CursorExtensionFromVsix -VsixPath $vsixPath)) {
+                    Write-Host ("Cursor extension {0} unpacked from VSIX cache." -f $label)
+                    Write-CursorLog ("Cursor extension {0} unpacked manually from VSIX cache." -f $extensionId)
+                    $installedSet = Get-CursorInstalledExtensionSet -CliPath $cliPath
+                    if (-not $installedSet.Contains($extensionId.ToLowerInvariant())) {
+                        $null = $installedSet.Add($extensionId.ToLowerInvariant())
+                    }
+                    $installed = $true
                 }
             } else {
-                Write-Warning ("Failed to install Cursor extension {0} (exit {1}). Install it manually via the Cursor marketplace." -f $label, $exitCode)
-                Write-CursorLog ("Cursor extension {0} installation failed with exit code {1}." -f $extensionId, $exitCode)
-                $missingExtensions += $extensionId
+                Write-CursorLog ("No VSIX fallback available for extension {0}." -f $extensionId)
             }
-        } catch {
-            Write-Warning ("Failed to install Cursor extension {0} ({1}). Install it manually via the Cursor marketplace." -f $label, $_.Exception.Message)
-            Write-CursorLog ("Cursor extension {0} installation error: {1}" -f $extensionId, $_.Exception.Message)
+        }
+
+        if (-not $installed) {
+            Write-Warning ("Failed to install Cursor extension {0}. Install it manually via the Cursor marketplace." -f $label)
+            Write-CursorLog ("Cursor extension {0} installation could not be automated." -f $extensionId)
             $missingExtensions += $extensionId
         }
     }
@@ -2041,6 +2262,9 @@ chmod +x /tmp/open-in-windows.sh
             "export STAGING_KSA_NAME='web-sa'",
             "export PRODUCTION_KSA_NAMESPACE='web'",
             "export PRODUCTION_KSA_NAME='web-sa'",
+            "export AUTO_APPROVE=1",
+            "export TF_INPUT=0",
+            "export TF_IN_AUTOMATION=1",
             'cd $HOME/ai-dev-platform',
             "./scripts/bootstrap-infra.sh"
         )
