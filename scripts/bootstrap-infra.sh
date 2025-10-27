@@ -77,6 +77,36 @@ prompt_for() {
   done
 }
 
+run_terraform_apply_with_retries() {
+  local env_dir="$1"
+  local env_array_name="$2"
+  local args_array_name="$3"
+  declare -n _tf_env="$env_array_name"
+  declare -n _tf_args="$args_array_name"
+
+  local max_attempts="${TERRAFORM_MAX_RETRIES:-3}"
+  if [[ -z "$max_attempts" || "$max_attempts" -lt 1 ]]; then
+    max_attempts=1
+  fi
+
+  local attempt exit_code
+  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    if (( attempt > 1 )); then
+      echo "Retrying terraform apply (attempt $attempt of $max_attempts)..." >&2
+      sleep $((attempt - 1))
+    fi
+    if (cd "$env_dir" && env "${_tf_env[@]}" terraform apply "${_tf_args[@]}"); then
+      return 0
+    fi
+    exit_code=$?
+    echo "terraform apply failed (attempt $attempt, exit code $exit_code)." >&2
+    if (( attempt == max_attempts )); then
+      return "$exit_code"
+    fi
+  done
+  return 1
+}
+
 write_state() {
   cat > "$STATE_FILE" <<EOF
 GCP_PROJECT_ID="$GCP_PROJECT_ID"
@@ -329,11 +359,17 @@ run_terraform_for_env() {
 
   if (( auto_apply_requested )); then
     heading "Terraform apply ($env_name)"
-    (cd "$env_dir" && env "${tf_env[@]}" terraform apply "${terraform_apply_args[@]}")
+    if ! run_terraform_apply_with_retries "$env_dir" tf_env terraform_apply_args; then
+      echo "Terraform apply for $env_name failed after ${TERRAFORM_MAX_RETRIES:-3} attempts." >&2
+      return 1
+    fi
   elif prompt_yes "Run terraform apply for $env_name now?" "Y"; then
     heading "Terraform apply ($env_name)"
     terraform_apply_args+=("-auto-approve")
-    (cd "$env_dir" && env "${tf_env[@]}" terraform apply "${terraform_apply_args[@]}")
+    if ! run_terraform_apply_with_retries "$env_dir" tf_env terraform_apply_args; then
+      echo "Terraform apply for $env_name failed after ${TERRAFORM_MAX_RETRIES:-3} attempts." >&2
+      return 1
+    fi
   else
     echo "Skipping terraform apply for $env_name at user request."
     SKIPPED_APPLY_ENVS+=("$env_name")

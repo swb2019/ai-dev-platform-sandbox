@@ -143,6 +143,7 @@ Before you start, make sure you can provide the following:
    - Automatically creates the GitHub repository (via `gh repo create`) if it does not yet exist or is empty, then continues.
    - Offers to configure Google Cloud (interactive `gcloud auth login`, `gcloud auth application-default login`, and `./scripts/bootstrap-infra.sh`) and to update GitHub environments automatically. Browser windows open on Windows; if the browser is blocked, copy the displayed URL manually. When the script reaches the Infisical step it first asks for an existing `INFISICAL_TOKEN` and only generates one (with a cost warning) if you explicitly opt in.
    - When Terraform runs, the helper auto-approves the plan (`AUTO_APPROVE=1`, `TF_IN_AUTOMATION=1`), so no manual `yes` confirmation is required.
+   - Terraform applies are retried automatically (default three attempts, configurable via `TERRAFORM_MAX_RETRIES`) to ride out transient network hiccups.
    - Ensures the Cursor Codex and Claude Code extensions are installed, falling back to cached VSIX packages if the marketplace or CLI is unavailable.
    - Reminds you to launch Cursor from a standard (non-admin) session at the end so you can sign into Codex and Claude Code without inheriting elevated privileges.
 
