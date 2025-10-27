@@ -78,14 +78,25 @@ ensure_cosign_available() {
     return
   fi
   echo "Cosign CLI not found. Attempting automatic installation..." >&2
-  local sudo_cmd=""
-  if command -v sudo >/dev/null 2>&1; then
-    sudo_cmd="sudo "
-  fi
   if command -v apt-get >/dev/null 2>&1; then
-    if ${sudo_cmd}apt-get update && DEBIAN_FRONTEND=noninteractive ${sudo_cmd}apt-get install -y cosign >/dev/null 2>&1; then
-      echo "Cosign installed via apt." >&2
-      return
+    if [[ $EUID -eq 0 ]]; then
+      echo "Installing cosign with apt-get (running as root)..." >&2
+      if apt-get update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y cosign >/dev/null 2>&1; then
+        echo "Cosign installed via apt." >&2
+        return
+      fi
+      echo "apt-get installation as root failed. Falling back to direct download." >&2
+    elif command -v sudo >/dev/null 2>&1; then
+      if sudo -n true >/dev/null 2>&1; then
+        echo "Installing cosign with sudo apt-get..." >&2
+        if sudo -n apt-get update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive sudo -n apt-get install -y cosign >/dev/null 2>&1; then
+          echo "Cosign installed via apt." >&2
+          return
+        fi
+        echo "sudo apt-get installation failed. Falling back to direct download." >&2
+      else
+        echo "sudo requires an interactive password; skipping apt-get installation." >&2
+      fi
     fi
   fi
   local arch
@@ -138,15 +149,19 @@ generate_cosign_key() {
   fi
   ensure_cosign_available
   echo "Generating Cosign key pair for ${label} at ${key_prefix}.{key,pub}..." >&2
-  local pwfile
+  ensure_cosign_available
+  local pwfile log_file
   pwfile="$(mktemp)"
-  printf '\n' >"$pwfile"
-  if ! cosign generate-key-pair --output-key-prefix "$key_prefix" --password-file "$pwfile" >/dev/null 2>&1; then
-    rm -f "$pwfile"
+  log_file="$(mktemp)"
+  printf '' >"$pwfile"
+  hash -r
+  if ! COSIGN_PASSWORD="" cosign generate-key-pair --output-key-prefix "$key_prefix" --password-file "$pwfile" >"$log_file" 2>&1; then
+    cat "$log_file" >&2
+    rm -f "$pwfile" "$log_file"
     echo "Failed to generate Cosign key pair for ${label}. Ensure the directory is writable or provide an existing key." >&2
     exit 1
   fi
-  rm -f "$pwfile"
+  rm -f "$pwfile" "$log_file"
   if [[ ! -f "$pubkey" ]]; then
     echo "Cosign reported success but ${pubkey} is missing. Provide a valid PEM public key." >&2
     exit 1

@@ -1492,7 +1492,7 @@ function Ensure-WslPackages {
     Write-Section "Installing base packages inside WSL"
     $cmd = @"
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y git ca-certificates curl build-essential python3 python3-pip unzip pkg-config
+DEBIAN_FRONTEND=noninteractive apt-get install -y git ca-certificates curl build-essential python3 python3-pip unzip pkg-config wslu
 "@
     $result = Invoke-Wsl -Command $cmd -AsRoot
     if ($result.ExitCode -ne 0) {
