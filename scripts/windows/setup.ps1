@@ -1777,7 +1777,7 @@ function Ensure-DockerDesktop {
         }
         Start-Sleep -Seconds 5
         $attempts++
-        if (($attempts %% 12 -eq 0) -and ($restartAttempts -lt 3)) {
+        if (($attempts -ne 0) -and (($attempts % 12) -eq 0) -and ($restartAttempts -lt 3)) {
             Restart-DockerDesktopWsl -DockerExe $dockerExe
             $restartAttempts++
         }
