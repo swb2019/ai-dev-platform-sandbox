@@ -365,3 +365,11 @@ To wipe generated state (caches, node_modules, extension locks) run:
 ```
 
 Add `--destroy-cloud` to tear down Terraform-managed infrastructure (ensure you have credentials and intend to remove cloud resources).
+
+If you need to revert the machine completely—removing Cursor, Docker Desktop, the WSL distribution, and all cached state—run:
+
+```bash
+./scripts/uninstall.sh --full-reset
+```
+
+The helper generates and launches an elevated Windows PowerShell cleanup that uninstalls the host tooling and unregisters the WSL distro. A confirmation prompt from Windows User Account Control will appear; after it completes, reboot to return the PC to its pre-installation state.

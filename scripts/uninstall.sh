@@ -18,6 +18,9 @@ SKIP_DESTROY=0
 BACKUP_DIR=""
 PARALLEL_JOBS=4
 TELEMETRY=0
+FULL_RESET=0
+HOST_SCRIPT_CREATED=0
+HOST_SCRIPT_PATH_UNIX=""
 START_TIME=$SECONDS
 declare -a DRY_RUN_REPORT=()
 
@@ -115,6 +118,7 @@ Options:
   --dry-run           Show what would be removed without deleting anything.
   --include-home      Also remove Codex/Cursor caches under $HOME.
   --destroy-cloud     Run `terraform destroy` in infra/terraform/envs/* before cleaning files.
+  --full-reset        Uninstall Cursor, Docker Desktop, and remove known WSL distributions in addition to repo cleanup.
   --backup-dir <path> Create tar.gz backups of targets before deletion.
   --parallel <n>      Number of parallel cleanup workers (default: 4).
   --telemetry         Emit JSON telemetry lines for key events.
@@ -141,6 +145,16 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=1; shift ;;
     --include-home) INCLUDE_HOME=1; shift ;;
     --destroy-cloud) DESTROY_TERRAFORM=1; shift ;;
+    --full-reset)
+      FULL_RESET=1
+      FORCE=1
+      INCLUDE_HOME=1
+      SKIP_HOME=0
+      DESTROY_TERRAFORM=1
+      SKIP_DESTROY=0
+      SKIP_REPO=0
+      SKIP_TERRAFORM_LOCAL=0
+      shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage; exit 1 ;;
   esac
@@ -236,7 +250,11 @@ interactive_menu() {
   done
 }
 
-interactive_menu
+if (( FULL_RESET )); then
+  log_phase "Full reset requested; skipping interactive configuration prompts."
+else
+  interactive_menu
+fi
 
 timestamp_file() {
   date +"%Y%m%d-%H%M%S"
@@ -509,6 +527,171 @@ run_terraform_destroy() {
   popd >/dev/null
 }
 
+generate_host_cleanup_script() {
+  local host_root="/mnt/c/ProgramData/ai-dev-platform"
+  if [[ ! -d "$host_root" ]]; then
+    mkdir -p "$host_root"
+  fi
+  local script_path="$host_root/uninstall-host.ps1"
+  cat <<'POWERSHELL' >"$script_path"
+[CmdletBinding()]
+param(
+    [switch]$Elevated
+)
+
+function Restart-Elevated {
+    $args = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$MyInvocation.MyCommand.Definition,'-Elevated')
+    Start-Process -FilePath 'PowerShell.exe' -ArgumentList $args -Verb RunAs
+    exit
+}
+
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = New-Object Security.Principal.WindowsPrincipal($identity)
+
+if ($Elevated) {
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
+        Restart-Elevated
+    }
+} else {
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
+        Restart-Elevated
+    }
+}
+
+function Write-Info { param($Message) Write-Host "[host] $Message" -ForegroundColor Cyan }
+function Write-Ok   { param($Message) Write-Host "[host] $Message" -ForegroundColor Green }
+function Write-Warn { param($Message) Write-Host "[host] $Message" -ForegroundColor Yellow }
+function Write-Err  { param($Message) Write-Host "[host] $Message" -ForegroundColor Red }
+
+Write-Info "Waiting for active WSL sessions to exit..."
+for ($i = 0; $i -lt 120; $i++) {
+    if (-not (Get-Process -Name 'wsl' -ErrorAction SilentlyContinue)) { break }
+    Start-Sleep -Seconds 1
+}
+
+function Invoke-WingetUninstall {
+    param([string]$PackageId)
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Warn "winget not available; skipping $PackageId."
+        return
+    }
+    Write-Info "Uninstalling $PackageId via winget..."
+    & winget uninstall --id $PackageId --silent --accept-source-agreements --accept-package-agreements *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Ok "winget removed $PackageId."
+    } else {
+        Write-Warn "winget uninstall for $PackageId returned exit code $LASTEXITCODE."
+    }
+}
+
+$wingetTargets = @(
+    'Cursor.Cursor',
+    'Docker.DockerDesktop',
+    'Docker.DockerDesktop.App',
+    'Docker.DockerDesktopEdge'
+)
+foreach ($pkg in $wingetTargets) {
+    Invoke-WingetUninstall $pkg
+}
+
+Write-Info "Stopping Docker Desktop services..."
+Get-Process -Name 'Docker Desktop','DockerCli','com.docker.service' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+if (Get-Service -Name 'com.docker.service' -ErrorAction SilentlyContinue) {
+    Stop-Service -Name 'com.docker.service' -Force -ErrorAction SilentlyContinue
+}
+
+$registered = (& wsl.exe -l -q 2>$null) -replace "`0","" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+$knownDistros = @('Ubuntu','Ubuntu-22.04','Ubuntu-20.04','Ubuntu-24.04','ai-dev-platform','Ubuntu-22.04-ai-dev-platform')
+foreach ($distro in $knownDistros) {
+    if ($registered -contains $distro) {
+        Write-Info "Removing WSL distribution '$distro'..."
+        & wsl.exe --terminate $distro 2>$null | Out-Null
+        & wsl.exe --unregister $distro 2>$null | Out-Null
+        Write-Ok "WSL distribution '$distro' removed."
+    }
+}
+
+function Remove-Tree {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+    if (Test-Path $Path) {
+        Write-Info "Deleting $Path"
+        try {
+            Remove-Item -Path $Path -Recurse -Force -ErrorAction Stop
+            Write-Ok "Deleted $Path"
+        } catch {
+            Write-Warn "Failed to delete $Path: $($_.Exception.Message)"
+        }
+    }
+}
+
+$paths = @(
+    "$env:ProgramData\ai-dev-platform",
+    "$env:LOCALAPPDATA\ai-dev-platform",
+    "$env:LOCALAPPDATA\Cursor",
+    "$env:LOCALAPPDATA\Programs\Cursor",
+    "$env:APPDATA\Cursor",
+    "$env:UserProfile\.cursor",
+    "$env:UserProfile\ai-dev-platform",
+    "$env:UserProfile\.pnpm-store",
+    "$env:UserProfile\.turbo",
+    "$env:UserProfile\AppData\Local\Docker",
+    "$env:UserProfile\AppData\Roaming\Docker",
+    "$env:ProgramData\DockerDesktop",
+    "$env:ProgramData\Docker",
+    "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Docker Desktop.lnk",
+    "$env:UserProfile\Desktop\Docker Desktop.lnk"
+)
+foreach ($path in $paths) {
+    Remove-Tree $path
+}
+
+$envVars = @('INFISICAL_TOKEN','GH_TOKEN','WSLENV','DOCKER_CERT_PATH','DOCKER_HOST','DOCKER_DISTRO_NAME')
+foreach ($name in $envVars) {
+    [Environment]::SetEnvironmentVariable($name,$null,[EnvironmentVariableTarget]::User)
+    [Environment]::SetEnvironmentVariable($name,$null,[EnvironmentVariableTarget]::Machine)
+}
+
+Write-Ok "Host cleanup complete. A reboot is recommended."
+try {
+    Remove-Item -Path $MyInvocation.MyCommand.Definition -Force
+} catch {
+    Write-Warn "Unable to delete cleanup script: $($_.Exception.Message)"
+}
+POWERSHELL
+  chmod 0600 "$script_path"
+  HOST_SCRIPT_PATH_UNIX="$script_path"
+  HOST_SCRIPT_CREATED=1
+}
+
+launch_host_cleanup_script() {
+  (( HOST_SCRIPT_CREATED )) || return
+  if ! command -v powershell.exe >/dev/null 2>&1; then
+    local msg_path="$HOST_SCRIPT_PATH_UNIX"
+    if command -v wslpath >/dev/null 2>&1; then
+      msg_path=$(wslpath -w "$HOST_SCRIPT_PATH_UNIX")
+    fi
+    log_phase "PowerShell not available; run $msg_path manually with administrator privileges to finish host cleanup."
+    return
+  fi
+  local win_path
+  if command -v wslpath >/dev/null 2>&1; then
+    win_path=$(wslpath -w "$HOST_SCRIPT_PATH_UNIX")
+  else
+    win_path="C:\\ProgramData\\ai-dev-platform\\uninstall-host.ps1"
+  fi
+  local command="Start-Process -FilePath 'PowerShell.exe' -Verb RunAs -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File','${win_path}','-Elevated')"
+  if powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$command" >/dev/null 2>&1; then
+    log_phase "Windows host cleanup launched (administrator approval required)."
+  else
+    local fallback="$win_path"
+    if command -v wslpath >/dev/null 2>&1; then
+      fallback=$(wslpath -w "$HOST_SCRIPT_PATH_UNIX")
+    fi
+    log_phase "Failed to launch Windows cleanup automatically. Run $fallback manually as administrator."
+  fi
+}
+
 if ! prompt "This will remove generated artifacts from $ROOT_DIR. Proceed?"; then
   echo "Aborted."
   exit 0
@@ -584,6 +767,16 @@ if (( DRY_RUN )) && ((${#DRY_RUN_REPORT[@]})); then
   echo ""
   echo "Dry-run summary:"
   printf '  - %s\n' "${DRY_RUN_REPORT[@]}"
+fi
+
+if (( FULL_RESET )); then
+  if (( DRY_RUN )); then
+    log_phase "Full reset requested (dry-run); Windows host script will not be generated."
+  else
+    log_phase "Preparing Windows host reset script."
+    generate_host_cleanup_script
+    launch_host_cleanup_script
+  fi
 fi
 
 log_phase "Uninstall complete. Run ./scripts/setup-all.sh to reinstall when ready."
