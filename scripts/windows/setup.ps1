@@ -701,6 +701,68 @@ function Get-CursorStaticDownloadFallbacks {
     return $fallbacks
 }
 
+function Test-WslSudo {
+    $check = Invoke-Wsl -Command "if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then echo yes; else echo no; fi"
+    if ($check.ExitCode -eq 0 -and $check.Output.Trim().ToLowerInvariant() -eq "yes") {
+        return $true
+    }
+    return $false
+}
+
+function Ensure-WslInteropEnabled {
+    $status = Invoke-Wsl -Command "if [ -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then cat /proc/sys/fs/binfmt_misc/WSLInterop 2>/dev/null; else echo missing; fi"
+    if ($status.ExitCode -eq 0) {
+        $value = $status.Output.Trim()
+        if ($value -eq "1") {
+            return
+        }
+    }
+    Write-Host "WSL interoperability appears disabled. Attempting to re-enable automatically..." -ForegroundColor Yellow
+    $canUseSudo = Test-WslSudo
+    $enableScript = @"
+set -e
+if [ ! -d /proc/sys/fs/binfmt_misc ]; then
+  exit 11
+fi
+if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
+  if [ -w /proc/sys/fs/binfmt_misc/register ]; then
+    echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register
+  elif command -v sudo >/dev/null 2>&1; then
+    if sudo -n true >/dev/null 2>&1; then
+      sudo sh -c \"echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register\"
+    else
+      exit 12
+    fi
+  else
+    exit 13
+  fi
+fi
+if [ -w /proc/sys/fs/binfmt_misc/WSLInterop ]; then
+  echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop
+elif command -v sudo >/dev/null 2>&1; then
+  if sudo -n true >/dev/null 2>&1; then
+    sudo sh -c 'echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop'
+  else
+    exit 14
+  fi
+else
+  exit 15
+fi
+exit 0
+"@
+    $enableResult = Invoke-Wsl -Command $enableScript
+    if ($enableResult.ExitCode -eq 0) {
+        Write-Host "WSL interoperability re-enabled." -ForegroundColor Green
+        return
+    }
+    Write-Warning "Unable to re-enable WSL interoperability automatically."
+    if (-not $canUseSudo) {
+        Write-Warning "Run inside WSL: sudo sh -c 'echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop'. Then rerun this script."
+    } else {
+        Write-Warning "Ensure /proc/sys/fs/binfmt_misc is mounted and run: sudo sh -c 'echo \":WSLInterop:M::MZ::/init:\" > /proc/sys/fs/binfmt_misc/register' && sudo sh -c 'echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop'."
+    }
+}
+
 function Invoke-RobustDownload {
     param(
         [string]$Uri,
@@ -1833,8 +1895,13 @@ chmod +x /tmp/open-in-windows.sh
         }
 
         Write-Section "Google Cloud CLI authentication"
+        Ensure-WslInteropEnabled
         Write-Host "Launching browser for gcloud login." -ForegroundColor Yellow
         $loginResult = Invoke-Wsl -Command "BROWSER=/tmp/open-in-windows.sh gcloud auth login --launch-browser"
+        if ($loginResult.Output -match 'WSL Interoperability is disabled') {
+            Write-Warning "WSL interoperability is still disabled. Enable it inside WSL with 'sudo sh -c \"echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop\"' and rerun this script."
+            return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
+        }
         if ($loginResult.ExitCode -ne 0) {
             Write-Warning "gcloud auth login failed (exit $($loginResult.ExitCode)). Complete authentication manually and rerun."
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
@@ -1851,7 +1918,12 @@ chmod +x /tmp/open-in-windows.sh
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
         }
 
+        Ensure-WslInteropEnabled
         $adcResult = Invoke-Wsl -Command "BROWSER=/tmp/open-in-windows.sh gcloud auth application-default login --launch-browser"
+        if ($adcResult.Output -match 'WSL Interoperability is disabled') {
+            Write-Warning "WSL interoperability is still disabled. Enable it inside WSL with 'sudo sh -c \"echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop\"' and rerun this script."
+            return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
+        }
         if ($adcResult.ExitCode -ne 0) {
             Write-Warning "gcloud application-default login failed; configure ADC manually and rerun."
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
