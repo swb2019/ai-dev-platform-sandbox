@@ -1269,6 +1269,65 @@ function Get-CursorInstalledExtensionSet {
     return $set
 }
 
+function Get-CursorExtensionMirrorTargets {
+    $targets = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {
+        $targets += Join-Path $env:APPDATA "Cursor\User\extensions"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        $targets += Join-Path $env:LOCALAPPDATA "Cursor\User\extensions"
+    }
+    $uniqueTargets = @()
+    foreach ($target in ($targets | Where-Object { $_ })) {
+        if ($uniqueTargets -notcontains $target) {
+            $uniqueTargets += $target
+        }
+    }
+    return $uniqueTargets
+}
+
+function Ensure-CursorExtensionMirrored {
+    param([string]$ExtensionId)
+    $sourcePath = Get-CursorExtensionDirectory -ExtensionId $ExtensionId
+    if (-not $sourcePath -or -not (Test-Path $sourcePath)) {
+        Write-CursorLog ("No source directory located to mirror Cursor extension {0}." -f $ExtensionId)
+        return $false
+    }
+    $targets = Get-CursorExtensionMirrorTargets
+    if (-not $targets -or $targets.Count -eq 0) {
+        Write-CursorLog ("No mirror targets resolved for Cursor extension {0}." -f $ExtensionId)
+        return $false
+    }
+    $folderName = Split-Path -Path $sourcePath -Leaf
+    $mirrored = $false
+    foreach ($targetRoot in $targets) {
+        try {
+            if (-not (Test-Path $targetRoot)) {
+                New-Item -ItemType Directory -Path $targetRoot -Force | Out-Null
+            }
+            $destinationPath = Join-Path $targetRoot $folderName
+            if ([System.IO.Path]::GetFullPath($destinationPath) -eq [System.IO.Path]::GetFullPath($sourcePath)) {
+                Write-CursorLog ("Cursor extension {0} already resides at mirror target {1}." -f $ExtensionId, $destinationPath)
+                $mirrored = $true
+                continue
+            }
+            if (Test-Path $destinationPath) {
+                try {
+                    Remove-Item -Path $destinationPath -Recurse -Force -ErrorAction Stop
+                } catch {
+                    Write-CursorLog ("Failed to remove existing mirror for Cursor extension {0} at {1}: {2}" -f $ExtensionId, $destinationPath, $_.Exception.Message)
+                }
+            }
+            Copy-Item -Path $sourcePath -Destination $destinationPath -Recurse -Force
+            Write-CursorLog ("Mirrored Cursor extension {0} to {1}." -f $ExtensionId, $destinationPath)
+            $mirrored = $true
+        } catch {
+            Write-CursorLog ("Failed to mirror Cursor extension {0} to {1}: {2}" -f $ExtensionId, $targetRoot, $_.Exception.Message)
+        }
+    }
+    return $mirrored
+}
+
 function Test-CursorExtensionInstalled {
     param(
         [string]$ExtensionId,
@@ -1455,6 +1514,9 @@ function Ensure-CursorExtensions {
             if (Test-CursorExtensionInstalled -ExtensionId $extensionId -KnownSet $installedSet) {
                 Write-Host ("Cursor extension {0} installed successfully." -f $label)
                 Write-CursorLog ("Cursor extension {0} installed successfully via marketplace." -f $extensionId)
+                if (-not (Ensure-CursorExtensionMirrored -ExtensionId $extensionId)) {
+                    Write-Warning ("Cursor extension {0} installed but could not be mirrored to all Cursor data folders." -f $label)
+                }
                 $installed = $true
             }
         }
@@ -1469,6 +1531,9 @@ function Ensure-CursorExtensions {
                     if (Test-CursorExtensionInstalled -ExtensionId $extensionId -KnownSet $installedSet) {
                         Write-Host ("Cursor extension {0} installed successfully from VSIX." -f $label)
                         Write-CursorLog ("Cursor extension {0} installed successfully via VSIX CLI." -f $extensionId)
+                        if (-not (Ensure-CursorExtensionMirrored -ExtensionId $extensionId)) {
+                            Write-Warning ("Cursor extension {0} installed from VSIX but could not be mirrored to all Cursor data folders." -f $label)
+                        }
                         $installed = $true
                     }
                 }
@@ -1478,6 +1543,9 @@ function Ensure-CursorExtensions {
                     $installedSet = Get-CursorInstalledExtensionSet -CliPath $cliPath
                     if (-not $installedSet.Contains($extensionId.ToLowerInvariant())) {
                         $null = $installedSet.Add($extensionId.ToLowerInvariant())
+                    }
+                    if (-not (Ensure-CursorExtensionMirrored -ExtensionId $extensionId)) {
+                        Write-Warning ("Cursor extension {0} unpacked but could not be mirrored to all Cursor data folders." -f $label)
                     }
                     $installed = $true
                 }
