@@ -711,57 +711,97 @@ function Test-WslSudo {
 
 function Ensure-WslInteropEnabled {
     $status = Invoke-Wsl -Command "if [ -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then cat /proc/sys/fs/binfmt_misc/WSLInterop 2>/dev/null; else echo missing; fi"
-    if ($status.ExitCode -eq 0) {
-        $value = $status.Output.Trim()
-        if ($value -eq "1") {
-            return
-        }
+    if ($status.ExitCode -eq 0 -and $status.Output.Trim() -eq "1") {
+        return
     }
+
     Write-Host "WSL interoperability appears disabled. Attempting to re-enable automatically..." -ForegroundColor Yellow
-    $canUseSudo = Test-WslSudo
+
+    $configScript = @"
+set -e
+python3 <<'PY'
+import configparser, os
+path = '/etc/wsl.conf'
+changed = False
+config = configparser.RawConfigParser()
+config.optionxform = str
+if os.path.exists(path):
+    with open(path, 'r') as f:
+        config.read_file(f)
+if not config.has_section('interop'):
+    config.add_section('interop')
+    changed = True
+if config.get('interop', 'enabled', fallback='').lower() != 'true':
+    config.set('interop', 'enabled', 'true')
+    changed = True
+if config.get('interop', 'appendWindowsPath', fallback='').lower() != 'true':
+    config.set('interop', 'appendWindowsPath', 'true')
+    changed = True
+if changed:
+    with open(path, 'w') as f:
+        config.write(f)
+print('CHANGED' if changed else 'UNCHANGED')
+PY
+"@
+    $configResult = Invoke-Wsl -Command $configScript -AsRoot
+    $needsRestart = $false
+    if ($configResult.ExitCode -eq 0 -and ($configResult.Output.Trim().Split("`n") -contains 'CHANGED')) {
+        $needsRestart = $true
+    }
+    if ($needsRestart) {
+        Write-Host "Restarting WSL distribution '$DistroName' to apply configuration changes..." -ForegroundColor Yellow
+        wsl.exe --terminate $DistroName 2>$null | Out-Null
+        Start-Sleep -Seconds 2
+    }
+
     $enableScript = @"
 set -e
-if [ ! -d /proc/sys/fs/binfmt_misc ]; then
-  exit 11
+modprobe binfmt_misc 2>/dev/null || true
+if ! mountpoint -q /proc/sys/fs/binfmt_misc; then
+  mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc 2>/dev/null || true
 fi
 if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
-  if [ -w /proc/sys/fs/binfmt_misc/register ]; then
-    echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register
-  elif command -v sudo >/dev/null 2>&1; then
-    if sudo -n true >/dev/null 2>&1; then
-      sudo sh -c \"echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register\"
-    else
-      exit 12
-    fi
-  else
-    exit 13
-  fi
+  echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register
 fi
-if [ -w /proc/sys/fs/binfmt_misc/WSLInterop ]; then
-  echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop
-elif command -v sudo >/dev/null 2>&1; then
-  if sudo -n true >/dev/null 2>&1; then
-    sudo sh -c 'echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop'
-  else
-    exit 14
-  fi
+echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop
+if [ -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
+  cat /proc/sys/fs/binfmt_misc/WSLInterop
 else
-  exit 15
+  echo failed
+  exit 14
 fi
-exit 0
 "@
-    $enableResult = Invoke-Wsl -Command $enableScript
-    if ($enableResult.ExitCode -eq 0) {
+    $enableResult = Invoke-Wsl -Command $enableScript -AsRoot
+    if ($enableResult.ExitCode -eq 0 -and $enableResult.Output.Trim().Split("`n")[-1] -eq "1") {
         Write-Host "WSL interoperability re-enabled." -ForegroundColor Green
         return
     }
-    Write-Warning "Unable to re-enable WSL interoperability automatically."
-    if (-not $canUseSudo) {
-        Write-Warning "Run inside WSL: sudo sh -c 'echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop'. Then rerun this script."
-    } else {
-        Write-Warning "Ensure /proc/sys/fs/binfmt_misc is mounted and run: sudo sh -c 'echo \":WSLInterop:M::MZ::/init:\" > /proc/sys/fs/binfmt_misc/register' && sudo sh -c 'echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop'."
+
+    Write-Section "WSL interoperability is still disabled after automated remediation"
+    Write-Host "Attempting elevated WSL interop remediation..." -ForegroundColor Yellow
+    $elevatedCommand = "modprobe binfmt_misc 2>/dev/null || true; mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc 2>/dev/null || true; if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register; fi; echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop"
+    $escapedElevatedCommand = $elevatedCommand.Replace('"','"')
+    $null = & wsl.exe -d $DistroName --user root -- sh -lc "$escapedElevatedCommand"
+    $elevatedExit = $LASTEXITCODE
+    if ($elevatedExit -eq 0) {
+        $finalCheck = Invoke-Wsl -Command "if [ -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then cat /proc/sys/fs/binfmt_misc/WSLInterop 2>/dev/null; else echo missing; fi"
+        if ($finalCheck.ExitCode -eq 0 -and $finalCheck.Output.Trim() -eq "1") {
+            Write-Host "WSL interoperability re-enabled via elevated command." -ForegroundColor Green
+            return
+        }
     }
+
+    Write-Warning "Automatic remediation failed."
+    $manualInstructionsTemplate = @'
+Run this from an elevated PowerShell prompt:
+  wsl.exe -d {0} --user root -- sh -lc "modprobe binfmt_misc 2>/dev/null || true; mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc 2>/dev/null || true; if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register; fi; echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop"
+After enabling interoperability, rerun this script.
+'@
+    $manualInstructions = $manualInstructionsTemplate -f $DistroName
+    Write-Warning $manualInstructions
+    throw "WSL interoperability could not be re-enabled automatically."
 }
+
 
 function Invoke-RobustDownload {
     param(
@@ -1898,15 +1938,10 @@ chmod +x /tmp/open-in-windows.sh
         Ensure-WslInteropEnabled
         Write-Host "Launching browser for gcloud login." -ForegroundColor Yellow
         $loginResult = Invoke-Wsl -Command "BROWSER=/tmp/open-in-windows.sh gcloud auth login --launch-browser"
-        if ($loginResult.Output -match 'WSL Interoperability is disabled') {
-            Write-Warning "WSL interoperability is still disabled. Enable it inside WSL with 'sudo sh -c \"echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop\"' and rerun this script."
-            return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
-        }
         if ($loginResult.ExitCode -ne 0) {
             Write-Warning "gcloud auth login failed (exit $($loginResult.ExitCode)). Complete authentication manually and rerun."
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
         }
-
         $describeProject = Invoke-Wsl -Command "gcloud projects describe $projectId"
         if ($describeProject.ExitCode -ne 0) {
             Write-Warning "Project '$projectId' not found or access denied. Create it in the Google Cloud Console and rerun."
@@ -1920,15 +1955,10 @@ chmod +x /tmp/open-in-windows.sh
 
         Ensure-WslInteropEnabled
         $adcResult = Invoke-Wsl -Command "BROWSER=/tmp/open-in-windows.sh gcloud auth application-default login --launch-browser"
-        if ($adcResult.Output -match 'WSL Interoperability is disabled') {
-            Write-Warning "WSL interoperability is still disabled. Enable it inside WSL with 'sudo sh -c \"echo 1 > /proc/sys/fs/binfmt_misc/WSLInterop\"' and rerun this script."
-            return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
-        }
         if ($adcResult.ExitCode -ne 0) {
             Write-Warning "gcloud application-default login failed; configure ADC manually and rerun."
             return [PSCustomObject]@{ Completed = $false; GeneratedInfisical = $generatedInfisical }
         }
-
         Write-Section "Terraform bootstrap"
         Write-Host "Using defaults; press Enter to accept when prompted." -ForegroundColor Yellow
         $bootstrapCommands = @(
