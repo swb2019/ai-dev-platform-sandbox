@@ -308,9 +308,32 @@ run_terraform_for_env() {
     fi
   fi
 
-  if prompt_yes "Run terraform apply for $env_name now?" "Y"; then
+  local auto_apply_requested=0
+  local auto_flag="${AUTO_APPROVE:-}"
+  local tf_automation_flag="${TF_IN_AUTOMATION:-}"
+  if [[ -n "${auto_flag:-}" ]]; then
+    case "${auto_flag,,}" in
+      1|true|y|yes|on) auto_apply_requested=1 ;;
+    esac
+  fi
+  if (( auto_apply_requested == 0 )) && [[ -n "${tf_automation_flag:-}" ]]; then
+    case "${tf_automation_flag,,}" in
+      1|true|y|yes|on) auto_apply_requested=1 ;;
+    esac
+  fi
+
+  local -a terraform_apply_args=()
+  if (( auto_apply_requested )); then
+    terraform_apply_args+=("-auto-approve")
+  fi
+
+  if (( auto_apply_requested )); then
     heading "Terraform apply ($env_name)"
-    (cd "$env_dir" && env "${tf_env[@]}" terraform apply)
+    (cd "$env_dir" && env "${tf_env[@]}" terraform apply "${terraform_apply_args[@]}")
+  elif prompt_yes "Run terraform apply for $env_name now?" "Y"; then
+    heading "Terraform apply ($env_name)"
+    terraform_apply_args+=("-auto-approve")
+    (cd "$env_dir" && env "${tf_env[@]}" terraform apply "${terraform_apply_args[@]}")
   else
     echo "Skipping terraform apply for $env_name at user request."
     SKIPPED_APPLY_ENVS+=("$env_name")

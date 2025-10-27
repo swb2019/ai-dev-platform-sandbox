@@ -1418,9 +1418,9 @@ function Ensure-CursorExtensions {
 
     $cliPath = Get-CursorCliPath -CursorExePath $cursorPath
     if (-not $cliPath -or -not (Test-Path $cliPath)) {
-        Write-Warning "Cursor command-line interface not found. Install extensions manually via the Cursor marketplace."
-        Write-CursorLog "Cursor CLI not found; extension installation skipped."
-        return
+        Write-Warning "Cursor command-line interface not found; attempting VSIX-based installation instead."
+        Write-CursorLog "Cursor CLI not found; falling back to VSIX/manual extension installation."
+        $cliPath = $null
     }
 
     $targets = @(
