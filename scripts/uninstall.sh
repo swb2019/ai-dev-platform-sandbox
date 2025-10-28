@@ -21,7 +21,7 @@ TELEMETRY=0
 FULL_RESET=0
 HOST_SCRIPT_CREATED=0
 HOST_SCRIPT_PATH_UNIX=""
-HOST_BATCH_PATH_UNIX=""
+HOST_INVOKER_PATH_UNIX=""
 START_TIME=$SECONDS
 declare -a DRY_RUN_REPORT=()
 
@@ -534,6 +534,7 @@ generate_host_cleanup_script() {
     mkdir -p "$host_root"
   fi
   local script_path="$host_root/uninstall-host.ps1"
+  local invoker_path="$host_root/invoke-uninstall-host.ps1"
   cat <<'POWERSHELL' >"$script_path"
 [CmdletBinding()]
 param(
@@ -659,24 +660,22 @@ try {
 } catch {
     Write-Warn "Unable to delete cleanup script: $($_.Exception.Message)"
 }
-try {
-    $batchPath = [System.IO.Path]::ChangeExtension($MyInvocation.MyCommand.Definition, '.bat')
-    if (Test-Path $batchPath) {
-        Remove-Item -Path $batchPath -Force -ErrorAction SilentlyContinue
-    }
-} catch {
-    Write-Warn "Unable to delete helper batch script: $($_.Exception.Message)"
-}
 POWERSHELL
-  local batch_path="${script_path%.ps1}.bat"
-  cat <<'BATCH' >"$batch_path"
-@echo off
-PowerShell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall-host.ps1"
-BATCH
-  chmod 0600 "$batch_path"
+  cat <<'POWERSHELL' >"$invoker_path"
+[CmdletBinding()]
+param(
+    [string]$ScriptPath = "$PSScriptRoot\uninstall-host.ps1"
+)
+if (-not (Test-Path $ScriptPath)) {
+    Write-Error "Host cleanup script not found: $ScriptPath"
+    exit 1
+}
+Start-Process -FilePath 'PowerShell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File', $ScriptPath -Verb RunAs
+POWERSHELL
+  chmod 0600 "$invoker_path"
   chmod 0600 "$script_path"
   HOST_SCRIPT_PATH_UNIX="$script_path"
-  HOST_BATCH_PATH_UNIX="$batch_path"
+  HOST_INVOKER_PATH_UNIX="$invoker_path"
   HOST_SCRIPT_CREATED=1
 }
 
@@ -691,15 +690,15 @@ launch_host_cleanup_script() {
     return
   fi
   local win_path
-  local batch_win_path
+  local invoker_win_path
   if command -v wslpath >/dev/null 2>&1; then
     win_path=$(wslpath -w "$HOST_SCRIPT_PATH_UNIX")
-    batch_win_path=$(wslpath -w "$HOST_BATCH_PATH_UNIX")
+    invoker_win_path=$(wslpath -w "$HOST_INVOKER_PATH_UNIX")
   else
     win_path="C:\\ProgramData\\ai-dev-platform\\uninstall-host.ps1"
-    batch_win_path="C:\\ProgramData\\ai-dev-platform\\uninstall-host.bat"
+    invoker_win_path="C:\\ProgramData\\ai-dev-platform\\invoke-uninstall-host.ps1"
   fi
-  if cmd.exe /c start "" "$batch_win_path" >/dev/null 2>&1; then
+  if powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$invoker_win_path" >/dev/null 2>&1; then
     log_phase "Windows host cleanup launched (administrator approval required)."
   else
     local fallback="$win_path"
