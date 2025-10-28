@@ -381,3 +381,15 @@ Prefer launching the reset from Windows PowerShell? Invoke the wrapper at the re
 ```
 
 It shells into WSL to execute the same full-reset flow (honouring `-DryRun` or `-DestroyCloud` flags) and surfaces the Windows UAC prompt automatically.
+If PowerShell blocks the script with an execution-policy warning, bypass it for the current session:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\Reset-AiDevPlatform.ps1
+```
+
+You can also inline the override without changing the shell state:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\Reset-AiDevPlatform.ps1
+```
