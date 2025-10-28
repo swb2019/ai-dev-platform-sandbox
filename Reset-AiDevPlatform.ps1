@@ -88,6 +88,15 @@ if (-not $SkipConfirm) {
     }
 }
 
+
+$sanitizeCommand = @"
+cd '$wslPathEscaped'
+if command -v find >/dev/null 2>&1; then
+  find . -type f -name '*.sh' -exec sed -i 's/\r$//' {} +
+fi
+"@
+& wsl.exe -- bash -lc $sanitizeCommand | Out-Null
+
 Write-Host "Executing uninstall inside WSL..." -ForegroundColor Cyan
 & wsl.exe -- bash -lc "$fullCommand"
 $exitCode = $LASTEXITCODE
