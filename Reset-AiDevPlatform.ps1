@@ -70,8 +70,9 @@ $commandArgs = [System.Collections.Generic.List[string]]::new()
 $commandArgs.Add("./scripts/uninstall.sh")
 $commandArgs.Add("--full-reset")
 $commandArgs.Add("--force")
-if ($DryRun)      { $commandArgs.Add("--dry-run") }
-if ($DestroyCloud) { $commandArgs.Add("--destroy-cloud") }
+if ($DryRun)        { $commandArgs.Add("--dry-run") }
+if ($DestroyCloud)  { $commandArgs.Add("--destroy-cloud") }
+else                { $commandArgs.Add("--skip-destroy-cloud") }
 
 $commandString = [string]::Join(" ", $commandArgs)
 

@@ -380,7 +380,7 @@ Prefer launching the reset from Windows PowerShell? Invoke the wrapper at the re
 .\Reset-AiDevPlatform.ps1
 ```
 
-It shells into WSL to execute the same full-reset flow (honouring `-DryRun` or `-DestroyCloud` flags) and surfaces the Windows UAC prompt automatically.
+It shells into WSL to execute the same full-reset flow (honouring `-DryRun` or `-DestroyCloud` flags) and surfaces the Windows UAC prompt automatically. By default it skips Terraform `destroy`; add `-DestroyCloud` if you truly want to tear down the GCP infrastructure as well.
 If PowerShell blocks the script with an execution-policy warning, bypass it for the current session:
 
 ```powershell
