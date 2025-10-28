@@ -32,6 +32,20 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Convert-WindowsPathToWsl {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+    $resolved = [System.IO.Path]::GetFullPath($Path)
+    if ($resolved -match '^[A-Za-z]:\\') {
+        $drive = $resolved.Substring(0,1).ToLowerInvariant()
+        $rest = $resolved.Substring(2).Replace('\\','/')
+        return ("/mnt/{0}/{1}" -f $drive, $rest).Replace('//','/')
+    }
+    return $resolved.Replace('\\','/')
+}
+
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     throw "WSL is not installed or wsl.exe cannot be found. Install/enable WSL before running the reset."
 }
@@ -44,11 +58,10 @@ if (-not (Test-Path $uninstallScript)) {
     throw "Unable to locate scripts\uninstall.sh under $repoRoot. Run this script from the repository checkout."
 }
 
-$wslPath = (& wsl.exe wslpath -a $repoRoot) 2>$null
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($wslPath)) {
+$wslPath = Convert-WindowsPathToWsl $repoRoot
+if ([string]::IsNullOrWhiteSpace($wslPath)) {
     throw "Failed to translate $repoRoot into a WSL path. Ensure the WSL distribution is installed and running."
 }
-$wslPath = $wslPath.Trim()
 
 $commandArgs = [System.Collections.Generic.List[string]]::new()
 $commandArgs.Add("./scripts/uninstall.sh")
