@@ -32,6 +32,11 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+function Test-CommandAvailable {
+    param([string]$Name)
+    return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
 function Convert-WindowsPathToWsl {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) {
@@ -129,6 +134,86 @@ function Invoke-RepositoryCleanup {
     }
 }
 
+function Get-GitRemoteSlug {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoPath,
+        [string]$Remote = "origin"
+    )
+    if (-not (Test-CommandAvailable "git")) {
+        return ""
+    }
+    try {
+        $url = & git -C $RepoPath remote get-url $Remote 2>$null
+    } catch {
+        return ""
+    }
+    if ([string]::IsNullOrWhiteSpace($url)) {
+        return ""
+    }
+    $url = $url.Trim()
+    $match = [Regex]::Match($url, "github\.com[:/](.+?)(\.git)?$")
+    if ($match.Success) {
+        return $match.Groups[1].Value
+    }
+    return ""
+}
+
+function Invoke-GitHubForkDeletion {
+    param(
+        [string]$OriginSlug,
+        [string]$UpstreamSlug = "swb2019/ai-dev-platform"
+    )
+
+    if ([string]::IsNullOrWhiteSpace($OriginSlug)) {
+        Write-Host "Git origin remote not detected; skipping GitHub repository deletion." -ForegroundColor DarkGray
+        return
+    }
+    if ([string]::IsNullOrWhiteSpace($UpstreamSlug)) {
+        $UpstreamSlug = "swb2019/ai-dev-platform"
+    }
+    if ($OriginSlug -eq $UpstreamSlug) {
+        Write-Host "Origin remote matches upstream ($OriginSlug); skipping GitHub repository deletion." -ForegroundColor DarkGray
+        return
+    }
+    if (-not (Test-CommandAvailable "gh")) {
+        Write-Host "GitHub CLI not available; delete '$OriginSlug' manually if desired." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host ""
+    Write-Host "Detected GitHub repository '$OriginSlug' linked to this checkout (upstream: $UpstreamSlug)." -ForegroundColor Yellow
+    $answer = Read-Host "Delete GitHub repository '$OriginSlug'? [Y/n]"
+    if ([string]::IsNullOrWhiteSpace($answer)) {
+        $answer = "y"
+    }
+    if ($answer.Trim().ToLowerInvariant() -notin @("y","yes")) {
+        Write-Host "Skipped deletion of GitHub repository '$OriginSlug'." -ForegroundColor DarkGray
+        return
+    }
+
+    try {
+        & gh repo view $OriginSlug --json name 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "GitHub repository '$OriginSlug' not found or inaccessible; skipping deletion." -ForegroundColor DarkGray
+            return
+        }
+    } catch {
+        Write-Warning ("Unable to verify GitHub repository '{0}': {1}" -f $OriginSlug, $_.Exception.Message)
+        return
+    }
+
+    try {
+        & gh repo delete $OriginSlug --yes
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Deleted GitHub repository '$OriginSlug'." -ForegroundColor Green
+        } else {
+            Write-Warning ("gh repo delete '{0}' returned exit code {1}." -f $OriginSlug, $LASTEXITCODE)
+        }
+    } catch {
+        Write-Warning ("Failed to delete GitHub repository '{0}': {1}" -f $OriginSlug, $_.Exception.Message)
+    }
+}
+
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     throw "WSL is not installed or wsl.exe cannot be found. Install/enable WSL before running the reset."
 }
@@ -146,6 +231,12 @@ if ([string]::IsNullOrWhiteSpace($wslPath)) {
     throw "Failed to translate $repoRoot into a WSL path. Ensure the WSL distribution is installed and running."
 }
 $wslPath = ($wslPath -replace "`r","").Trim()
+
+$originSlug = Get-GitRemoteSlug -RepoPath $repoRoot -Remote "origin"
+$upstreamSlug = Get-GitRemoteSlug -RepoPath $repoRoot -Remote "upstream"
+if ([string]::IsNullOrWhiteSpace($upstreamSlug)) {
+    $upstreamSlug = "swb2019/ai-dev-platform"
+}
 
 $commandArgs = [System.Collections.Generic.List[string]]::new()
 $commandArgs.Add("./scripts/uninstall.sh")
@@ -189,6 +280,7 @@ if ($exitCode -ne 0) {
     throw "WSL uninstall script exited with code $exitCode. Review the output above for details."
 }
 
+Invoke-GitHubForkDeletion -OriginSlug $originSlug -UpstreamSlug $upstreamSlug
 Invoke-RepositoryCleanup -RepoPath $repoRoot
 
 Write-Host ""
