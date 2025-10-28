@@ -42,10 +42,10 @@ function Convert-WindowsPathToWsl {
         $drive = $resolved.Substring(0,1).ToLowerInvariant()
         $rest = $resolved.Substring(2)
         $rest = $rest.TrimStart('\')
-        $rest = $rest.Replace('\\','/')
+        $rest = $rest -replace '\\','/'
         return "/mnt/$drive/$rest"
     }
-    return $resolved.Replace('\\','/')
+    return ($resolved -replace '\\','/')
 }
 
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
