@@ -61,7 +61,12 @@ try {
 
     $gitStatus = git status --porcelain
     if ($gitStatus) {
-        throw "Working tree is not clean. Commit or stash changes before synchronization."
+        Write-Host "Working tree contains local changes; resetting to a clean state..." -ForegroundColor Yellow
+        git reset --hard HEAD
+        git clean -fd
+        if (git status --porcelain) {
+            throw "Unable to clean working tree automatically. Resolve manually and rerun."
+        }
     }
 
     git checkout main
