@@ -40,8 +40,10 @@ function Convert-WindowsPathToWsl {
     $resolved = [System.IO.Path]::GetFullPath($Path)
     if ($resolved -match '^[A-Za-z]:\\') {
         $drive = $resolved.Substring(0,1).ToLowerInvariant()
-        $rest = $resolved.Substring(2).Replace('\\','/')
-        return ("/mnt/{0}/{1}" -f $drive, $rest).Replace('//','/')
+        $rest = $resolved.Substring(2)
+        $rest = $rest.TrimStart('\')
+        $rest = $rest.Replace('\\','/')
+        return "/mnt/$drive/$rest"
     }
     return $resolved.Replace('\\','/')
 }
