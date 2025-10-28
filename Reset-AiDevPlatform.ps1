@@ -64,6 +64,7 @@ $wslPath = Convert-WindowsPathToWsl $repoRoot
 if ([string]::IsNullOrWhiteSpace($wslPath)) {
     throw "Failed to translate $repoRoot into a WSL path. Ensure the WSL distribution is installed and running."
 }
+$wslPath = ($wslPath -replace "`r","").Trim()
 
 $commandArgs = [System.Collections.Generic.List[string]]::new()
 $commandArgs.Add("./scripts/uninstall.sh")
@@ -78,6 +79,7 @@ $escapeSingleQuote = { param($text) $text -replace "'", "'\''" }
 $wslPathEscaped = & $escapeSingleQuote $wslPath
 $commandEscaped = & $escapeSingleQuote $commandString
 $fullCommand = "cd '$wslPathEscaped' && $commandEscaped"
+$fullCommand = $fullCommand -replace "`r",""
 
 if (-not $SkipConfirm) {
     Write-Host "This will remove repository artifacts, cached data, and launch the Windows cleanup helper." -ForegroundColor Yellow
@@ -95,7 +97,8 @@ if command -v find >/dev/null 2>&1; then
   find . -type f -name '*.sh' -exec sed -i 's/\r$//' {} +
 fi
 "@
-& wsl.exe -- bash -lc $sanitizeCommand | Out-Null
+$sanitizeCommand = $sanitizeCommand -replace "`r",""
+& wsl.exe -- bash -lc $sanitizeCommand 2>$null | Out-Null
 
 Write-Host "Executing uninstall inside WSL..." -ForegroundColor Cyan
 & wsl.exe -- bash -lc "$fullCommand"
