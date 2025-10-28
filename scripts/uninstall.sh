@@ -21,6 +21,7 @@ TELEMETRY=0
 FULL_RESET=0
 HOST_SCRIPT_CREATED=0
 HOST_SCRIPT_PATH_UNIX=""
+HOST_BATCH_PATH_UNIX=""
 START_TIME=$SECONDS
 declare -a DRY_RUN_REPORT=()
 
@@ -658,9 +659,24 @@ try {
 } catch {
     Write-Warn "Unable to delete cleanup script: $($_.Exception.Message)"
 }
+try {
+    $batchPath = [System.IO.Path]::ChangeExtension($MyInvocation.MyCommand.Definition, '.bat')
+    if (Test-Path $batchPath) {
+        Remove-Item -Path $batchPath -Force -ErrorAction SilentlyContinue
+    }
+} catch {
+    Write-Warn "Unable to delete helper batch script: $($_.Exception.Message)"
+}
 POWERSHELL
+  local batch_path="${script_path%.ps1}.bat"
+  cat <<'BATCH' >"$batch_path"
+@echo off
+PowerShell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall-host.ps1"
+BATCH
+  chmod 0600 "$batch_path"
   chmod 0600 "$script_path"
   HOST_SCRIPT_PATH_UNIX="$script_path"
+  HOST_BATCH_PATH_UNIX="$batch_path"
   HOST_SCRIPT_CREATED=1
 }
 
@@ -675,12 +691,15 @@ launch_host_cleanup_script() {
     return
   fi
   local win_path
+  local batch_win_path
   if command -v wslpath >/dev/null 2>&1; then
     win_path=$(wslpath -w "$HOST_SCRIPT_PATH_UNIX")
+    batch_win_path=$(wslpath -w "$HOST_BATCH_PATH_UNIX")
   else
     win_path="C:\\ProgramData\\ai-dev-platform\\uninstall-host.ps1"
+    batch_win_path="C:\\ProgramData\\ai-dev-platform\\uninstall-host.bat"
   fi
-  if powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$win_path" >/dev/null 2>&1; then
+  if cmd.exe /c start "" "$batch_win_path" >/dev/null 2>&1; then
     log_phase "Windows host cleanup launched (administrator approval required)."
   else
     local fallback="$win_path"
