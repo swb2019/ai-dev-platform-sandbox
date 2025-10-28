@@ -680,8 +680,7 @@ launch_host_cleanup_script() {
   else
     win_path="C:\\ProgramData\\ai-dev-platform\\uninstall-host.ps1"
   fi
-  local command="Start-Process -FilePath 'PowerShell.exe' -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','$win_path','-Elevated'"
-  if powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$command" >/dev/null 2>&1; then
+  if powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$win_path" >/dev/null 2>&1; then
     log_phase "Windows host cleanup launched (administrator approval required)."
   else
     local fallback="$win_path"
