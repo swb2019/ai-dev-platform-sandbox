@@ -48,6 +48,87 @@ function Convert-WindowsPathToWsl {
     return ($resolved -replace '\\','/')
 }
 
+function Invoke-DeferredDirectoryRemoval {
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetPath,
+        [int]$DelaySeconds = 5
+    )
+    if ([string]::IsNullOrWhiteSpace($TargetPath)) {
+        return
+    }
+    if (-not (Test-Path -LiteralPath $TargetPath)) {
+        return
+    }
+    $escapedPath = $TargetPath -replace "'", "''"
+    $script = @"
+Start-Sleep -Seconds $DelaySeconds
+if (Test-Path -LiteralPath '$escapedPath') {
+    try {
+        Remove-Item -LiteralPath '$escapedPath' -Recurse -Force -ErrorAction Stop
+    } catch {
+        Start-Sleep -Seconds 3
+        try {
+            Remove-Item -LiteralPath '$escapedPath' -Recurse -Force -ErrorAction Stop
+        } catch {
+            Write-Host ("Failed to remove '$escapedPath': {0}" -f `$_.Exception.Message) -ForegroundColor Yellow
+        }
+    }
+}
+"@
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
+    try {
+        Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-EncodedCommand",$encoded -WindowStyle Hidden | Out-Null
+    } catch {
+        Write-Warning ("Failed to schedule deferred removal for '{0}': {1}" -f $TargetPath, $_.Exception.Message)
+    }
+}
+
+function Invoke-RepositoryCleanup {
+    param([string]$RepoPath)
+
+    if ([string]::IsNullOrWhiteSpace($RepoPath)) {
+        return
+    }
+
+    if (-not (Test-Path -LiteralPath $RepoPath)) {
+        Write-Host ("Repository directory '{0}' already absent." -f $RepoPath) -ForegroundColor DarkGray
+        return
+    }
+
+    $resolved = (Resolve-Path -LiteralPath $RepoPath).ProviderPath
+    $currentLocation = (Get-Location).ProviderPath
+    if ($currentLocation) {
+        try {
+            if ($currentLocation.StartsWith($resolved, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $parent = Split-Path -LiteralPath $resolved -Parent
+                if ([string]::IsNullOrWhiteSpace($parent)) {
+                    $parent = [System.IO.Path]::GetPathRoot($resolved)
+                }
+                if (-not [string]::IsNullOrWhiteSpace($parent)) {
+                    Set-Location -Path $parent
+                    Write-Host ("Moved current directory to '{0}' to allow cleanup." -f $parent) -ForegroundColor DarkGray
+                }
+            }
+        } catch {
+            Write-Warning ("Unable to adjust working directory prior to cleanup: {0}" -f $_.Exception.Message)
+        }
+    }
+
+    $removed = $false
+    try {
+        Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction Stop
+        Write-Host ("Repository directory '{0}' removed." -f $resolved) -ForegroundColor Green
+        $removed = $true
+    } catch {
+        Write-Warning ("Immediate removal failed for '{0}': {1}" -f $resolved, $_.Exception.Message)
+    }
+
+    if (-not $removed) {
+        Invoke-DeferredDirectoryRemoval -TargetPath $resolved -DelaySeconds 6
+        Write-Host ("Repository directory '{0}' queued for deferred deletion." -f $resolved) -ForegroundColor Yellow
+    }
+}
+
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     throw "WSL is not installed or wsl.exe cannot be found. Install/enable WSL before running the reset."
 }
@@ -107,6 +188,8 @@ $exitCode = $LASTEXITCODE
 if ($exitCode -ne 0) {
     throw "WSL uninstall script exited with code $exitCode. Review the output above for details."
 }
+
+Invoke-RepositoryCleanup -RepoPath $repoRoot
 
 Write-Host ""
 Write-Host "WSL uninstall completed. Approve the Windows UAC prompt (if shown) to finish removing host applications." -ForegroundColor Green
