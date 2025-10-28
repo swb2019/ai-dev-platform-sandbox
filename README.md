@@ -373,3 +373,11 @@ If you need to revert the machine completely—removing Cursor, Docker Desktop, 
 ```
 
 The helper generates and launches an elevated Windows PowerShell cleanup that uninstalls the host tooling and unregisters the WSL distro. A confirmation prompt from Windows User Account Control will appear; after it completes, reboot to return the PC to its pre-installation state.
+
+Prefer launching the reset from Windows PowerShell? Invoke the wrapper at the repository root:
+
+```powershell
+.\Reset-AiDevPlatform.ps1
+```
+
+It shells into WSL to execute the same full-reset flow (honouring `-DryRun` or `-DestroyCloud` flags) and surfaces the Windows UAC prompt automatically.
