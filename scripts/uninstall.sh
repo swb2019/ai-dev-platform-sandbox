@@ -92,6 +92,29 @@ log_phase() {
   printf '[%s] %s (elapsed %ss)\n' "$(date '+%H:%M:%S')" "$message" "$elapsed"
 }
 
+encode_pwsh_command() {
+  local input="$1"
+  local encoder=""
+  if [[ -n "$PYTHON_BIN" ]]; then
+    encoder="$PYTHON_BIN"
+  elif command -v python3 >/dev/null 2>&1; then
+    encoder="python3"
+  fi
+  if [[ -n "$encoder" ]]; then
+    "$encoder" - <<'PY' "$input"
+import base64, sys
+payload = sys.argv[1].encode('utf-16le')
+print(base64.b64encode(payload).decode('ascii'), end='')
+PY
+    return
+  fi
+  if command -v iconv >/dev/null 2>&1 && command -v base64 >/dev/null 2>&1; then
+    printf '%s' "$input" | iconv -f UTF-8 -t UTF-16LE | base64 | tr -d '\n'
+    return
+  fi
+  printf ''
+}
+
 telemetry_emit() {
   (( TELEMETRY )) || return 0
   local event="$1"
@@ -683,15 +706,24 @@ launch_host_cleanup_script() {
     win_path="C:\\ProgramData\\ai-dev-platform\\uninstall-host.ps1"
   fi
   local ps_command="Start-Process PowerShell.exe -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','${win_path}'"
+  local encoded
+  encoded=$(encode_pwsh_command "$ps_command")
+  if [[ -n "$encoded" ]]; then
+    if powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand "$encoded" >/dev/null 2>&1; then
+      log_phase "Windows host cleanup launched (administrator approval required)."
+      return
+    fi
+  fi
+  log_phase "Unable to encode PowerShell command; attempting direct invocation."
   if powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ps_command" >/dev/null 2>&1; then
     log_phase "Windows host cleanup launched (administrator approval required)."
-  else
-    local fallback="$win_path"
-    if command -v wslpath >/dev/null 2>&1; then
-      fallback=$(wslpath -w "$HOST_SCRIPT_PATH_UNIX")
-    fi
-    log_phase "Failed to launch Windows cleanup automatically. Run $fallback manually as administrator."
+    return
   fi
+  local fallback="$win_path"
+  if command -v wslpath >/dev/null 2>&1; then
+    fallback=$(wslpath -w "$HOST_SCRIPT_PATH_UNIX")
+  fi
+  log_phase "Failed to launch Windows cleanup automatically. Run $fallback manually as administrator."
 }
 
 if ! prompt "This will remove generated artifacts from $ROOT_DIR. Proceed?"; then
