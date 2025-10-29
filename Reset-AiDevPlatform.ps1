@@ -284,7 +284,7 @@ if (-not $DryRun) {
     if (Test-CommandAvailable "gh") {
         Invoke-GitHubForkDeletion -OriginSlug $originSlug -UpstreamSlug $upstreamSlug
     }
-    $originalLocation = Get-Location
+    $originalPath = (Get-Location).Path
     $locationPushed = $false
     try {
         $repoParent = Split-Path -LiteralPath $repoRoot -Parent
@@ -296,8 +296,8 @@ if (-not $DryRun) {
     } finally {
         if ($locationPushed) {
             Pop-Location | Out-Null
-        } elseif ($originalLocation) {
-            try { Set-Location -LiteralPath $originalLocation.Path } catch {}
+        } elseif ($originalPath) {
+            try { Set-Location -LiteralPath $originalPath } catch {}
         }
     }
 } else {

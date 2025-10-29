@@ -850,7 +850,7 @@ if (-not $SkipConfirm) {
     }
 }
 
-$initialLocation = Get-Location
+$initialPath = (Get-Location).Path
 $locationPushed  = $false
 
 $issues = [System.Collections.Generic.List[string]]::new()
@@ -1071,7 +1071,7 @@ finally {
     if ($locationPushed) {
         try { Pop-Location | Out-Null } catch {}
     }
-    if ($initialLocation) {
-        try { Set-Location -LiteralPath $initialLocation.Path } catch {}
+    if ($initialPath) {
+        try { Set-Location -LiteralPath $initialPath } catch {}
     }
 }
