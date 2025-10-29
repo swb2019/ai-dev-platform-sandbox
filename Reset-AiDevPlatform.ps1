@@ -280,8 +280,29 @@ if ($exitCode -ne 0) {
     throw "WSL uninstall script exited with code $exitCode. Review the output above for details."
 }
 
-Invoke-GitHubForkDeletion -OriginSlug $originSlug -UpstreamSlug $upstreamSlug
-Invoke-RepositoryCleanup -RepoPath $repoRoot
+if (-not $DryRun) {
+    if (Test-CommandAvailable "gh") {
+        Invoke-GitHubForkDeletion -OriginSlug $originSlug -UpstreamSlug $upstreamSlug
+    }
+    $originalLocation = Get-Location
+    $locationPushed = $false
+    try {
+        $repoParent = Split-Path -LiteralPath $repoRoot -Parent
+        if ($repoParent -and (Test-Path -LiteralPath $repoParent)) {
+            Push-Location -LiteralPath $repoParent
+            $locationPushed = $true
+        }
+        Invoke-RepositoryCleanup -RepoPath $repoRoot
+    } finally {
+        if ($locationPushed) {
+            Pop-Location | Out-Null
+        } elseif ($originalLocation) {
+            try { Set-Location -LiteralPath $originalLocation.Path } catch {}
+        }
+    }
+} else {
+    Write-Host "Dry-run mode: skipping GitHub fork deletion and repository cleanup." -ForegroundColor Yellow
+}
 
 Write-Host ""
 Write-Host "WSL uninstall completed. Approve the Windows UAC prompt (if shown) to finish removing host applications." -ForegroundColor Green

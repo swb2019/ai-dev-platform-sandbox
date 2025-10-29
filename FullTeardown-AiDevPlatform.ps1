@@ -300,6 +300,7 @@ function Ensure-CredentialReadiness {
 
     if (Test-CommandAvailable 'gcloud') {
         $gcloudAccountOk = $false
+        $gcloudLoginSkipped = $false
         try {
             $accounts = (& gcloud auth list --format=value(account) 2>$null)
             $gcloudAccountOk = [bool]$accounts
@@ -313,6 +314,8 @@ function Ensure-CredentialReadiness {
             $launchLogin = $true
             if (-not [string]::IsNullOrWhiteSpace($answer) -and $answer.Trim().ToLowerInvariant() -in @('skip','s')) {
                 $launchLogin = $false
+                $gcloudLoginSkipped = $true
+                $Notes.Add("Skipped gcloud auth login; continuing with existing credentials.")
             }
             if ($launchLogin) {
                 try {
@@ -329,10 +332,15 @@ function Ensure-CredentialReadiness {
             }
         }
         if (-not $gcloudAccountOk) {
-            $Issues.Add("Google Cloud CLI lacks an authenticated user. Run 'gcloud auth login' before rerunning the teardown.")
+            if ($gcloudLoginSkipped) {
+                $Notes.Add("Google Cloud CLI user authentication still missing; ensure Terraform destroy does not rely on it.")
+            } else {
+                $Issues.Add("Google Cloud CLI lacks an authenticated user. Run 'gcloud auth login' before rerunning the teardown.")
+            }
         }
 
         $adcOk = $false
+        $adcSkipped = $false
         try {
             & gcloud auth application-default print-access-token 2>$null
             $adcOk = ($LASTEXITCODE -eq 0)
@@ -345,6 +353,8 @@ function Ensure-CredentialReadiness {
             $launchAdc = $true
             if (-not [string]::IsNullOrWhiteSpace($answer) -and $answer.Trim().ToLowerInvariant() -in @('skip','s')) {
                 $launchAdc = $false
+                $adcSkipped = $true
+                $Notes.Add("Skipped gcloud application-default login; continuing without ADC refresh.")
             }
             if ($launchAdc) {
                 try {
@@ -361,7 +371,11 @@ function Ensure-CredentialReadiness {
             }
         }
         if (-not $adcOk) {
-            $Issues.Add("Application Default Credentials are still unavailable. Run 'gcloud auth application-default login' before rerunning the teardown.")
+            if ($adcSkipped) {
+                $Notes.Add("Application Default Credentials still unavailable; Terraform destroy may fail if they are required.")
+            } else {
+                $Issues.Add("Application Default Credentials are still unavailable. Run 'gcloud auth application-default login' before rerunning the teardown.")
+            }
         }
     } else {
         $Issues.Add("gcloud CLI not found on PATH; install Google Cloud SDK or provide credentials before rerunning the teardown.")
@@ -369,6 +383,7 @@ function Ensure-CredentialReadiness {
 
     if (Test-CommandAvailable 'gh') {
         $ghOk = $false
+        $ghSkipped = $false
         try {
             & gh auth status --hostname github.com 2>&1 | Out-Null
             $ghOk = ($LASTEXITCODE -eq 0)
@@ -381,6 +396,8 @@ function Ensure-CredentialReadiness {
             $launchGh = $true
             if (-not [string]::IsNullOrWhiteSpace($answer) -and $answer.Trim().ToLowerInvariant() -in @('skip','s')) {
                 $launchGh = $false
+                $ghSkipped = $true
+                $Notes.Add("Skipped GitHub CLI login; continuing without refreshing GitHub credentials.")
             }
             if ($launchGh) {
                 try {
@@ -397,7 +414,11 @@ function Ensure-CredentialReadiness {
             }
         }
         if (-not $ghOk) {
-            $Issues.Add("GitHub CLI authentication required. Run 'gh auth login --hostname github.com' before rerunning the teardown.")
+            if ($ghSkipped) {
+                $Notes.Add("GitHub CLI authentication still missing; fork deletion and GitHub API actions may fail.")
+            } else {
+                $Issues.Add("GitHub CLI authentication required. Run 'gh auth login --hostname github.com' before rerunning the teardown.")
+            }
         }
     } else {
         $Notes.Add("GitHub CLI not detected; skipping GitHub verification.")
@@ -829,10 +850,14 @@ if (-not $SkipConfirm) {
     }
 }
 
+$initialLocation = Get-Location
+$locationPushed  = $false
+
 $issues = [System.Collections.Generic.List[string]]::new()
 $notes  = [System.Collections.Generic.List[string]]::new()
 $temporaryRoots = [System.Collections.Generic.List[string]]::new()
 
+try {
 $repoInfo = Acquire-AiDevRepo -Notes $notes -Issues $issues
 if (-not $repoInfo.Path) {
     throw "Unable to locate or download the ai-dev-platform checkout. Resolve the issues above and rerun the teardown."
@@ -879,7 +904,8 @@ Stop-KnownProcesses -Issues $issues
 
 $repoParent = Split-Path -Parent $repoRoot
 if ($repoParent -and (Test-Path -LiteralPath $repoParent)) {
-    Set-Location $repoParent
+    Push-Location -LiteralPath $repoParent
+    $locationPushed = $true
 }
 
 $wslPath = Convert-WindowsPathToWsl $repoRoot
@@ -1039,4 +1065,13 @@ if ($issues.Count -eq 0) {
         Write-Host " - $issue" -ForegroundColor Yellow
     }
     throw "Automated reset finished with issues. Resolve the items above."
+}
+}
+finally {
+    if ($locationPushed) {
+        try { Pop-Location | Out-Null } catch {}
+    }
+    if ($initialLocation) {
+        try { Set-Location -LiteralPath $initialLocation.Path } catch {}
+    }
 }
