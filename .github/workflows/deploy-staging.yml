@@ -92,20 +92,7 @@ jobs:
         run: gcloud auth configure-docker "${{ secrets.STAGING_ARTIFACT_REGISTRY_HOST }}" --quiet
 
       - name: Install supply chain tooling
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends curl jq
-          TRIVY_VERSION=0.55.2
-          GRYPE_VERSION=0.79.3
-          SYFT_VERSION=1.33.0
-          COSIGN_VERSION=2.3.0
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v${TRIVY_VERSION}
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sudo sh -s -- -b /usr/local/bin v${GRYPE_VERSION}
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sudo sh -s -- -b /usr/local/bin v${SYFT_VERSION}
-          curl -sSL https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64 -o cosign
-          sudo install -m 0755 cosign /usr/local/bin/cosign
-          rm cosign
+        run: bash scripts/tools/install-supply-chain-tools.sh
 
       - name: Build container image
         run: bash scripts/container/supply-chain.sh build

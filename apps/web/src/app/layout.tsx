@@ -5,6 +5,8 @@ import { Inter, JetBrains_Mono } from 'next/font/google';
 import { cn } from '@/lib/utils';
 import './globals.css';
 
+const COPYRIGHT_YEAR = process.env.BUILD_COPYRIGHT_YEAR ?? '2024';
+
 const inter = Inter({
   variable: '--font-sans',
   subsets: ['latin'],
@@ -64,7 +66,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
           <main className="relative flex-1">{children}</main>
           <footer className="border-t border-white/10 bg-black/50 px-6 py-6 text-sm text-white/60 backdrop-blur">
             <div className="mx-auto flex w-full max-w-6xl flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-              <p>© {new Date().getFullYear()} AI Dev Platform. All rights reserved.</p>
+              <p>© {COPYRIGHT_YEAR} AI Dev Platform. All rights reserved.</p>
               <nav className="flex gap-4">
                 <Link className="hover:text-white" href="/privacy">
                   Privacy

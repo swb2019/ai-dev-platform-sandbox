@@ -51,6 +51,32 @@ require_cmd() {
   fi
 }
 
+ensure_supply_chain_tools() {
+  local required_tools=(trivy grype syft cosign)
+  local missing=()
+  for tool in "${required_tools[@]}"; do
+    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+  done
+  if ((${#missing[@]} == 0)); then
+    return
+  fi
+
+  echo "Installing supply-chain tooling (${missing[*]})..."
+  if ! "${ROOT_DIR}/scripts/tools/install-supply-chain-tools.sh"; then
+    echo "Failed to install supply-chain tooling automatically." >&2
+    exit 1
+  fi
+
+  missing=()
+  for tool in "${required_tools[@]}"; do
+    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+  done
+  if ((${#missing[@]} > 0)); then
+    echo "Supply-chain tooling still missing after installation attempt: ${missing[*]}" >&2
+    exit 1
+  fi
+}
+
 ensure_image() {
   if ! docker image inspect "$IMAGE_REF" >/dev/null 2>&1; then
     echo "Docker image '$IMAGE_REF' not found. Build it first (action: build)." >&2
@@ -110,8 +136,7 @@ cmd_build() {
 
 cmd_scan() {
   require_cmd docker
-  require_cmd trivy
-  require_cmd grype
+  ensure_supply_chain_tools
   ensure_image
 
   echo "Running Trivy scan (HIGH,CRITICAL) on $IMAGE_REF"
@@ -132,7 +157,7 @@ cmd_scan() {
 
 cmd_sbom() {
   require_cmd docker
-  require_cmd syft
+  ensure_supply_chain_tools
   ensure_image
 
   echo "Generating CycloneDX SBOM at $SBOM_OUTPUT"
@@ -140,7 +165,7 @@ cmd_sbom() {
 }
 
 cmd_sign() {
-  require_cmd cosign
+  ensure_supply_chain_tools
   ensure_image
   if [[ ! -s "$SBOM_OUTPUT" ]]; then
     echo "SBOM file '$SBOM_OUTPUT' not found. Run the sbom action first." >&2

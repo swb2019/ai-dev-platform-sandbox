@@ -5,6 +5,8 @@ export const metadata: Metadata = {
   description: 'Usage terms for the AI Development Platform.',
 };
 
+const EFFECTIVE_YEAR = process.env.BUILD_COPYRIGHT_YEAR ?? '2024';
+
 const clauses = [
   {
     heading: 'Acceptable Use',
@@ -30,8 +32,8 @@ export default function TermsPage() {
       <header className="space-y-3">
         <h1 className="text-4xl font-semibold text-white">Terms of Service</h1>
         <p className="text-sm text-white/70">
-          Effective {new Date().getFullYear()} — The following terms govern usage of the AI Dev
-          Platform by internal and external teams.
+          Effective {EFFECTIVE_YEAR} — The following terms govern usage of the AI Dev Platform by
+          internal and external teams.
         </p>
       </header>
       <section className="space-y-6 text-sm leading-relaxed text-white/80">
