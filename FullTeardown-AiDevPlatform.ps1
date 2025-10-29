@@ -850,7 +850,7 @@ if (-not $SkipConfirm) {
     }
 }
 
-$initialPath = (Get-Location).Path
+$initialPath = (Get-Item -LiteralPath '.' -ErrorAction Stop).FullName
 $locationPushed  = $false
 
 $issues = [System.Collections.Generic.List[string]]::new()
