@@ -192,8 +192,8 @@ function Acquire-AiDevRepo {
         if (-not $value) { $value = [Environment]::GetEnvironmentVariable($envName,'Machine') }
         Add-UniqueString -List $candidates -Value $value
     }
-    if ($MyInvocation.MyCommand.Path) {
-        Add-UniqueString -List $candidates -Value (Split-Path -Parent $MyInvocation.MyCommand.Path)
+    if ($PSScriptRoot) {
+        Add-UniqueString -List $candidates -Value $PSScriptRoot
     }
     try {
         $pwdCandidate = (Get-Item -LiteralPath '.' -ErrorAction Stop).FullName
