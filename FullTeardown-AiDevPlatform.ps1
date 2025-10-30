@@ -859,11 +859,31 @@ $temporaryRoots = [System.Collections.Generic.List[string]]::new()
 
 try {
 $repoInfo = Acquire-AiDevRepo -Notes $notes -Issues $issues
-if (-not $repoInfo.Path) {
+$repoRoot = $null
+$repoTemporary = $false
+if ($repoInfo -is [string]) {
+    $repoRoot = $repoInfo
+} elseif ($repoInfo -is [System.Collections.IDictionary]) {
+    if ($repoInfo.Contains('Path')) {
+        $repoRoot = $repoInfo['Path']
+    }
+    if ($repoInfo.Contains('Temporary')) {
+        $repoTemporary = [bool]$repoInfo['Temporary']
+    }
+} elseif ($null -ne $repoInfo) {
+    $pathProp = $repoInfo.PSObject.Properties['Path']
+    if ($pathProp) {
+        $repoRoot = $pathProp.Value
+    }
+    $tempProp = $repoInfo.PSObject.Properties['Temporary']
+    if ($tempProp) {
+        $repoTemporary = [bool]$tempProp.Value
+    }
+}
+if ([string]::IsNullOrWhiteSpace($repoRoot)) {
     throw "Unable to locate or download the ai-dev-platform checkout. Resolve the issues above and rerun the teardown."
 }
-$repoRoot = $repoInfo.Path
-if ($repoInfo.Temporary) {
+if ($repoTemporary) {
     $temporaryRoots.Add($repoRoot)
     $notes.Add("Using a temporary archive of ai-dev-platform downloaded to $repoRoot.")
 } else {
