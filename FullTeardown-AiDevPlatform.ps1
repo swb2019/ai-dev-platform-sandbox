@@ -869,7 +869,7 @@ $repoRoot = if ($repoInfo -is [System.Collections.IDictionary]) {
 if (-not $repoRoot) {
     throw "Unable to locate or download the ai-dev-platform checkout. Resolve the issues above and rerun the teardown."
 }
-if ($repoInfo -is [System.Collections.IDictionary] -and $repoInfo.ContainsKey('Temporary') -and $repoInfo['Temporary']) {
+if ($repoInfo -is [System.Collections.IDictionary] -and $repoInfo.Contains('Temporary') -and $repoInfo['Temporary']) {
     $temporaryRoots.Add($repoRoot)
     $notes.Add("Using a temporary archive of ai-dev-platform downloaded to $repoRoot.")
 } else {
