@@ -219,7 +219,7 @@ function Acquire-AiDevRepo {
     foreach ($candidate in $candidates) {
         if (Test-IsRepoRoot $candidate) {
             $resolved = (Resolve-Path -LiteralPath $candidate).ProviderPath
-            return [ordered]@{ Path = $resolved; Temporary = $false }
+            return [PSCustomObject]@{ Path = $resolved; Temporary = $false }
         }
     }
 
@@ -238,20 +238,20 @@ function Acquire-AiDevRepo {
         Invoke-WebRequest -Uri $repoUrl -OutFile $archivePath -UseBasicParsing
     } catch {
         $Issues.Add("Failed to download repository archive from ${repoUrl}: $($_.Exception.Message)")
-        return [ordered]@{ Path = $null; Temporary = $false }
+        return [PSCustomObject]@{ Path = $null; Temporary = $false }
     }
     try {
         Expand-Archive -Path $archivePath -DestinationPath $downloadRoot -Force
     } catch {
         $Issues.Add("Failed to extract repository archive ($archivePath): $($_.Exception.Message)")
-        return [ordered]@{ Path = $null; Temporary = $false }
+        return [PSCustomObject]@{ Path = $null; Temporary = $false }
     }
     $extracted = Get-ChildItem -Path $downloadRoot -Directory | Where-Object { Test-IsRepoRoot $_.FullName } | Select-Object -First 1
     if (-not $extracted) {
         $Issues.Add("Repository archive extracted but the expected layout was not found under $downloadRoot.")
-        return [ordered]@{ Path = $null; Temporary = $false }
+        return [PSCustomObject]@{ Path = $null; Temporary = $false }
     }
-    return [ordered]@{ Path = (Resolve-Path -LiteralPath $extracted.FullName).ProviderPath; Temporary = $true }
+    return [PSCustomObject]@{ Path = (Resolve-Path -LiteralPath $extracted.FullName).ProviderPath; Temporary = $true }
 }
 
 function Ensure-TerraformAvailable {
