@@ -14,7 +14,6 @@ variable "services" {
     "cloudbuild.googleapis.com",
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
-    "binaryauthorization.googleapis.com",
     "serviceusage.googleapis.com",
     "certificatemanager.googleapis.com",
     "mesh.googleapis.com"

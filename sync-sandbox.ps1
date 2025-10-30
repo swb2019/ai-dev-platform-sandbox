@@ -1,6 +1,5 @@
 Param(
-    [string]$RepoDir = "C:\dev\ai-dev-platform",
-    [switch]$Force
+    [string]$RepoDir = "C:\dev\ai-dev-platform"
 )
 
 Set-StrictMode -Version Latest
@@ -8,6 +7,14 @@ $ErrorActionPreference = "Stop"
 
 if (-not (Test-Path $RepoDir)) {
     throw "Repository directory '$RepoDir' not found."
+}
+
+$originUrl = git remote get-url origin 2>$null
+if ($originUrl -match 'github.com[:/](.+?)(\.git)?$') {
+    $SandboxRepo = $matches[1]
+    $OriginUrl = "https://github.com/$SandboxRepo.git"
+} else {
+    throw "Sandbox repository remote could not be determined. Configure 'origin' before running the script."
 }
 
 function Ensure-GitHubAuthentication {
@@ -40,14 +47,6 @@ function Ensure-RepositoryExists {
 
 Push-Location $RepoDir
 try {
-    $originUrl = git remote get-url origin 2>$null
-    if ($originUrl -match 'github.com[:/](.+?)(\.git)?$') {
-        $SandboxRepo = $matches[1]
-        $OriginUrl = "https://github.com/$SandboxRepo.git"
-    } else {
-        throw "Sandbox repository remote could not be determined. Configure 'origin' before running the script."
-    }
-
     Ensure-GitHubAuthentication
     Ensure-RepositoryExists
 
@@ -62,15 +61,7 @@ try {
 
     $gitStatus = git status --porcelain
     if ($gitStatus) {
-        if (-not $Force) {
-            Write-Warning "Working tree contains local changes:"
-            $gitStatus | ForEach-Object { Write-Host "  $_" }
-            $response = Read-Host "Continue and discard ALL uncommitted changes? (Y/N)"
-            if ($response -notin @('Y', 'y', 'Yes', 'YES')) {
-                throw "Aborting to avoid losing local changes. Re-run with -Force to discard them."
-            }
-        }
-        Write-Host "Cleaning working tree..." -ForegroundColor Yellow
+        Write-Host "Working tree contains local changes; resetting to a clean state..." -ForegroundColor Yellow
         git reset --hard HEAD
         git clean -fd
         if (git status --porcelain) {

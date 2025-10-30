@@ -92,7 +92,7 @@ function Test-IsRepoRoot {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
     try {
-    $resolved = (Get-Item -LiteralPath $Path -ErrorAction Stop).FullName
+        $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
     } catch {
         return $false
     }
@@ -192,11 +192,11 @@ function Acquire-AiDevRepo {
         if (-not $value) { $value = [Environment]::GetEnvironmentVariable($envName,'Machine') }
         Add-UniqueString -List $candidates -Value $value
     }
-    if ($PSScriptRoot) {
-        Add-UniqueString -List $candidates -Value $PSScriptRoot
+    if ($MyInvocation.MyCommand.Path) {
+        Add-UniqueString -List $candidates -Value (Split-Path -Parent $MyInvocation.MyCommand.Path)
     }
     try {
-        $pwdCandidate = (Get-Item -LiteralPath '.' -ErrorAction Stop).FullName
+        $pwdCandidate = (Get-Location).ProviderPath
         Add-UniqueString -List $candidates -Value $pwdCandidate
         $gitRoot = (& git -C $pwdCandidate rev-parse --show-toplevel 2>$null)
         if ($LASTEXITCODE -eq 0 -and $gitRoot) {
@@ -218,7 +218,7 @@ function Acquire-AiDevRepo {
 
     foreach ($candidate in $candidates) {
         if (Test-IsRepoRoot $candidate) {
-            $resolved = (Get-Item -LiteralPath $candidate -ErrorAction Stop).FullName
+            $resolved = (Resolve-Path -LiteralPath $candidate).ProviderPath
             return [ordered]@{ Path = $resolved; Temporary = $false }
         }
     }
@@ -237,7 +237,7 @@ function Acquire-AiDevRepo {
     try {
         Invoke-WebRequest -Uri $repoUrl -OutFile $archivePath -UseBasicParsing
     } catch {
-        $Issues.Add("Failed to download repository archive from ${repoUrl}: $($_.Exception.Message)")
+        $Issues.Add("Failed to download repository archive from $repoUrl: $($_.Exception.Message)")
         return [ordered]@{ Path = $null; Temporary = $false }
     }
     try {
@@ -251,7 +251,7 @@ function Acquire-AiDevRepo {
         $Issues.Add("Repository archive extracted but the expected layout was not found under $downloadRoot.")
         return [ordered]@{ Path = $null; Temporary = $false }
     }
-    return [ordered]@{ Path = (Get-Item -LiteralPath $extracted.FullName -ErrorAction Stop).FullName; Temporary = $true }
+    return [ordered]@{ Path = (Resolve-Path -LiteralPath $extracted.FullName).ProviderPath; Temporary = $true }
 }
 
 function Ensure-TerraformAvailable {
@@ -272,7 +272,7 @@ function Ensure-TerraformAvailable {
     try {
         Invoke-WebRequest -Uri $uri -OutFile $archivePath -UseBasicParsing
     } catch {
-        $Issues.Add("Unable to download Terraform from ${uri}: $($_.Exception.Message)")
+        $Issues.Add("Unable to download Terraform from $uri: $($_.Exception.Message)")
         return $null
     }
     try {
@@ -555,7 +555,7 @@ function Ensure-WingetRemoved {
             }
         } catch {
             $stillPresent = $true
-            $Issues.Add("winget failed to remove ${Label}: $($_.Exception.Message)")
+            $Issues.Add("winget failed to remove $Label: $($_.Exception.Message)")
         }
     } else {
         $stillPresent = $true
@@ -633,7 +633,7 @@ function Clear-EnvironmentVariables {
             try {
                 [Environment]::SetEnvironmentVariable($name,$null,$target)
             } catch {
-                $Issues.Add("Unable to clear environment variable ${name} for scope ${target}: $($_.Exception.Message)")
+                $Issues.Add("Unable to clear environment variable $name for scope $target: $($_.Exception.Message)")
             }
         }
     }
@@ -695,7 +695,7 @@ function Verify-WingetAbsent {
                 $Issues.Add("$label still appears in Apps & Features.")
             }
         } catch {
-            $Issues.Add("Unable to verify Apps & Features entry for ${label}: $($_.Exception.Message)")
+            $Issues.Add("Unable to verify Apps & Features entry for $label: $($_.Exception.Message)")
         }
     }
 }
@@ -752,7 +752,7 @@ function Parse-TerraformSummary {
             }
         }
     } catch {
-        $Issues.Add("Unable to parse Terraform summary at ${Path}: $($_.Exception.Message)")
+        $Issues.Add("Unable to parse Terraform summary at $Path: $($_.Exception.Message)")
     }
 }
 
@@ -850,7 +850,7 @@ if (-not $SkipConfirm) {
     }
 }
 
-$initialPath = (Get-Item -LiteralPath '.' -ErrorAction Stop).FullName
+$initialLocation = Get-Location
 $locationPushed  = $false
 
 $issues = [System.Collections.Generic.List[string]]::new()
@@ -859,17 +859,11 @@ $temporaryRoots = [System.Collections.Generic.List[string]]::new()
 
 try {
 $repoInfo = Acquire-AiDevRepo -Notes $notes -Issues $issues
-$repoRoot = if ($repoInfo -is [System.Collections.IDictionary]) {
-    $repoInfo['Path']
-} elseif ($repoInfo) {
-    $repoInfo
-} else {
-    $null
-}
-if (-not $repoRoot) {
+if (-not $repoInfo.Path) {
     throw "Unable to locate or download the ai-dev-platform checkout. Resolve the issues above and rerun the teardown."
 }
-if ($repoInfo -is [System.Collections.IDictionary] -and $repoInfo.Contains('Temporary') -and $repoInfo['Temporary']) {
+$repoRoot = $repoInfo.Path
+if ($repoInfo.Temporary) {
     $temporaryRoots.Add($repoRoot)
     $notes.Add("Using a temporary archive of ai-dev-platform downloaded to $repoRoot.")
 } else {
@@ -1077,7 +1071,7 @@ finally {
     if ($locationPushed) {
         try { Pop-Location | Out-Null } catch {}
     }
-    if ($initialPath) {
-        try { Set-Location -LiteralPath $initialPath } catch {}
+    if ($initialLocation) {
+        try { Set-Location -LiteralPath $initialLocation.Path } catch {}
     }
 }

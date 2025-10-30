@@ -6,8 +6,6 @@ if [[ $# -lt 2 ]]; then
   exit 1
 fi
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
 ENV_NAME="$1"
 PROJECT_ID="$2"
 
@@ -79,16 +77,64 @@ ensure_cosign_available() {
   if command -v cosign >/dev/null 2>&1; then
     return
   fi
-  echo "Cosign CLI not found. Installing via scripts/tools/install-supply-chain-tools.sh..." >&2
-  if ! "$ROOT_DIR/scripts/tools/install-supply-chain-tools.sh"; then
-    echo "Automatic Cosign installation failed. Install Cosign manually and rerun." >&2
+  echo "Cosign CLI not found. Attempting automatic installation..." >&2
+  if command -v apt-get >/dev/null 2>&1; then
+    if [[ $EUID -eq 0 ]]; then
+      echo "Installing cosign with apt-get (running as root)..." >&2
+      if apt-get update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive apt-get install -y cosign >/dev/null 2>&1; then
+        echo "Cosign installed via apt." >&2
+        return
+      fi
+      echo "apt-get installation as root failed. Falling back to direct download." >&2
+    elif command -v sudo >/dev/null 2>&1; then
+      if sudo -n true >/dev/null 2>&1; then
+        echo "Installing cosign with sudo apt-get..." >&2
+        if sudo -n apt-get update >/dev/null 2>&1 && DEBIAN_FRONTEND=noninteractive sudo -n apt-get install -y cosign >/dev/null 2>&1; then
+          echo "Cosign installed via apt." >&2
+          return
+        fi
+        echo "sudo apt-get installation failed. Falling back to direct download." >&2
+      else
+        echo "sudo requires an interactive password; skipping apt-get installation." >&2
+      fi
+    fi
+  fi
+  local arch
+  arch=$(dpkg --print-architecture 2>/dev/null || uname -m)
+  case "$arch" in
+    amd64|x86_64)
+      arch_asset="amd64"
+      ;;
+    arm64|aarch64)
+      arch_asset="arm64"
+      ;;
+    *)
+      echo "Unsupported architecture '$arch'. Install cosign manually and rerun." >&2
+      exit 1
+      ;;
+  esac
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  local asset="cosign-linux-${arch_asset}"
+  local url="https://github.com/sigstore/cosign/releases/latest/download/${asset}"
+  echo "Downloading cosign binary from ${url}..." >&2
+  if ! curl -fsSL -o "$tmpdir/cosign" "$url"; then
+    echo "Failed to download cosign binary. Install cosign manually and rerun." >&2
+    rm -rf "$tmpdir"
     exit 1
   fi
-  hash -r
+  chmod +x "$tmpdir/cosign"
+  local target_dir="$HOME/.local/bin"
+  mkdir -p "$target_dir"
+  mv "$tmpdir/cosign" "$target_dir/cosign"
+  rm -rf "$tmpdir"
+  PATH="$target_dir:$PATH"
+  export PATH
   if ! command -v cosign >/dev/null 2>&1; then
-    echo "Cosign installation did not place a 'cosign' binary on PATH." >&2
+    echo "Cosign installation failed. Install it manually and rerun." >&2
     exit 1
   fi
+  echo "Cosign installed at $target_dir/cosign." >&2
 }
 
 generate_cosign_key() {

@@ -11,7 +11,7 @@ set -euo pipefail
 OWNER=""
 REPO=""
 PROTECTED_BRANCH="main"
-REQUIRED_CHECKS_DEFAULT="CI / Security Scans,CI / Quality Gates,CI / Supply Chain"
+REQUIRED_CHECKS_DEFAULT="ci,deploy-staging,e2e-validation"
 REQUIRED_CHECK_CONTEXTS=()
 REMOVE_PROD_ENV=true
 STAGING_WAIT_MINUTES=0

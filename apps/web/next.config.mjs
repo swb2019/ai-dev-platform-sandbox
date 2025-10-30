@@ -2,14 +2,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const buildYear = new Date().getUTCFullYear().toString();
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
-  env: {
-    BUILD_COPYRIGHT_YEAR: buildYear,
-  },
   experimental: {
     externalDir: true,
   },
