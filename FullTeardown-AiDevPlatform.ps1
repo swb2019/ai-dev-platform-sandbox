@@ -92,7 +92,7 @@ function Test-IsRepoRoot {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
     try {
-        $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
+    $resolved = (Get-Item -LiteralPath $Path -ErrorAction Stop).FullName
     } catch {
         return $false
     }
@@ -196,7 +196,7 @@ function Acquire-AiDevRepo {
         Add-UniqueString -List $candidates -Value (Split-Path -Parent $MyInvocation.MyCommand.Path)
     }
     try {
-        $pwdCandidate = (Get-Location).ProviderPath
+        $pwdCandidate = (Get-Item -LiteralPath '.' -ErrorAction Stop).FullName
         Add-UniqueString -List $candidates -Value $pwdCandidate
         $gitRoot = (& git -C $pwdCandidate rev-parse --show-toplevel 2>$null)
         if ($LASTEXITCODE -eq 0 -and $gitRoot) {
@@ -218,7 +218,7 @@ function Acquire-AiDevRepo {
 
     foreach ($candidate in $candidates) {
         if (Test-IsRepoRoot $candidate) {
-            $resolved = (Resolve-Path -LiteralPath $candidate).ProviderPath
+            $resolved = (Get-Item -LiteralPath $candidate -ErrorAction Stop).FullName
             return [ordered]@{ Path = $resolved; Temporary = $false }
         }
     }
@@ -251,7 +251,7 @@ function Acquire-AiDevRepo {
         $Issues.Add("Repository archive extracted but the expected layout was not found under $downloadRoot.")
         return [ordered]@{ Path = $null; Temporary = $false }
     }
-    return [ordered]@{ Path = (Resolve-Path -LiteralPath $extracted.FullName).ProviderPath; Temporary = $true }
+    return [ordered]@{ Path = (Get-Item -LiteralPath $extracted.FullName -ErrorAction Stop).FullName; Temporary = $true }
 }
 
 function Ensure-TerraformAvailable {
