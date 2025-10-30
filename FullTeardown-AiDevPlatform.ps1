@@ -237,7 +237,7 @@ function Acquire-AiDevRepo {
     try {
         Invoke-WebRequest -Uri $repoUrl -OutFile $archivePath -UseBasicParsing
     } catch {
-        $Issues.Add("Failed to download repository archive from $repoUrl: $($_.Exception.Message)")
+        $Issues.Add("Failed to download repository archive from ${repoUrl}: $($_.Exception.Message)")
         return [ordered]@{ Path = $null; Temporary = $false }
     }
     try {
@@ -272,7 +272,7 @@ function Ensure-TerraformAvailable {
     try {
         Invoke-WebRequest -Uri $uri -OutFile $archivePath -UseBasicParsing
     } catch {
-        $Issues.Add("Unable to download Terraform from $uri: $($_.Exception.Message)")
+        $Issues.Add("Unable to download Terraform from ${uri}: $($_.Exception.Message)")
         return $null
     }
     try {
@@ -555,7 +555,7 @@ function Ensure-WingetRemoved {
             }
         } catch {
             $stillPresent = $true
-            $Issues.Add("winget failed to remove $Label: $($_.Exception.Message)")
+            $Issues.Add("winget failed to remove ${Label}: $($_.Exception.Message)")
         }
     } else {
         $stillPresent = $true
@@ -633,7 +633,7 @@ function Clear-EnvironmentVariables {
             try {
                 [Environment]::SetEnvironmentVariable($name,$null,$target)
             } catch {
-                $Issues.Add("Unable to clear environment variable $name for scope $target: $($_.Exception.Message)")
+                $Issues.Add("Unable to clear environment variable ${name} for scope ${target}: $($_.Exception.Message)")
             }
         }
     }
@@ -695,7 +695,7 @@ function Verify-WingetAbsent {
                 $Issues.Add("$label still appears in Apps & Features.")
             }
         } catch {
-            $Issues.Add("Unable to verify Apps & Features entry for $label: $($_.Exception.Message)")
+            $Issues.Add("Unable to verify Apps & Features entry for ${label}: $($_.Exception.Message)")
         }
     }
 }
@@ -752,7 +752,7 @@ function Parse-TerraformSummary {
             }
         }
     } catch {
-        $Issues.Add("Unable to parse Terraform summary at $Path: $($_.Exception.Message)")
+        $Issues.Add("Unable to parse Terraform summary at ${Path}: $($_.Exception.Message)")
     }
 }
 
