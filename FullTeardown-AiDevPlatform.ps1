@@ -497,8 +497,36 @@ function Invoke-WslBlock {
         }
         $normalized = ($exports -join "`n") + "`n" + $normalized
     }
-    $output = & wsl.exe -- bash -lc "$normalized" 2>&1
-    return @{ ExitCode = $LASTEXITCODE; Output = $output }
+
+    $escapedNormalized = $normalized.Replace('"','\"')
+    $cmdExecutable = $env:ComSpec
+    if ([string]::IsNullOrWhiteSpace($cmdExecutable)) {
+        $cmdExecutable = "cmd.exe"
+    }
+    $innerCommand = "wsl.exe -- bash -lc ""$escapedNormalized"" 2>&1"
+
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = & $cmdExecutable "/c" $innerCommand
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+
+    $outputLines = @()
+    if ($output -is [System.Array]) {
+        $outputLines = $output
+    } elseif ($null -ne $output) {
+        $outputLines = @("$output")
+    }
+
+    return @{
+        ExitCode = $exitCode
+        Output   = $outputLines
+        StdOut   = $outputLines
+        StdErr   = @()
+    }
 }
 
 function Stop-KnownProcesses {
