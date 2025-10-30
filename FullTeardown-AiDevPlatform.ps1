@@ -1092,6 +1092,14 @@ finally {
         try { Pop-Location | Out-Null } catch {}
     }
     if ($initialLocation) {
-        try { Set-Location -LiteralPath $initialLocation.Path } catch {}
+        $initialPath = $null
+        if ($initialLocation -is [System.Management.Automation.PathInfo]) {
+            $initialPath = $initialLocation.Path
+        } else {
+            $initialPath = [string]$initialLocation
+        }
+        if ($initialPath) {
+            try { Set-Location -LiteralPath $initialPath } catch {}
+        }
     }
 }
