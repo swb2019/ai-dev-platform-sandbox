@@ -35,6 +35,26 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+$script:TeardownScriptPath = $null
+$script:TeardownScriptRoot = $null
+try {
+    if (Test-Path variable:PSCommandPath) {
+        $psCommandPathVar = Get-Variable -Name PSCommandPath -ErrorAction Stop
+        $script:TeardownScriptPath = [string]$psCommandPathVar.Value
+    }
+} catch {}
+try {
+    if (Test-Path variable:PSScriptRoot) {
+        $psScriptRootVar = Get-Variable -Name PSScriptRoot -ErrorAction Stop
+        $script:TeardownScriptRoot = [string]$psScriptRootVar.Value
+    }
+} catch {}
+if (-not $script:TeardownScriptRoot -and $script:TeardownScriptPath) {
+    try {
+        $script:TeardownScriptRoot = Split-Path -Parent $script:TeardownScriptPath
+    } catch {}
+}
+
 function Test-CommandAvailable {
     param([string]$Name)
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
@@ -192,8 +212,8 @@ function Acquire-AiDevRepo {
         if (-not $value) { $value = [Environment]::GetEnvironmentVariable($envName,'Machine') }
         Add-UniqueString -List $candidates -Value $value
     }
-    if ($MyInvocation.MyCommand.Path) {
-        Add-UniqueString -List $candidates -Value (Split-Path -Parent $MyInvocation.MyCommand.Path)
+    if ($script:TeardownScriptRoot) {
+        Add-UniqueString -List $candidates -Value $script:TeardownScriptRoot
     }
     try {
         $pwdCandidate = (Get-Location).ProviderPath
